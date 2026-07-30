@@ -1,0 +1,50 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Cookbook Clipper — Options</title>
+  <link rel="stylesheet" href="popup.css">
+  <style>
+    body { width: auto; max-width: 480px; margin: 30px auto; }
+    label { display: block; margin-bottom: 14px; }
+    .lbl { display: block; font-weight: 600; font-size: 13px; margin-bottom: 4px; }
+    input {
+      width: 100%; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--paper); color: var(--ink); font: inherit;
+    }
+    .hint { display: block; font-size: 12px; color: var(--ink-faint); margin-top: 4px; }
+  </style>
+</head>
+<body>
+  <h1><span class="mark"></span> Cookbook Clipper — Options</h1>
+
+  <label>
+    <span class="lbl">Airtable personal access token</span>
+    <input type="password" id="pat" placeholder="pat…" autocomplete="off" spellcheck="false">
+    <span class="hint">
+      Create one at airtable.com/create/tokens with <b>data.records:read</b>, <b>data.records:write</b>
+      and <b>schema.bases:read</b>, granted access to your Cookbook base.
+      Stored in this extension's own storage only — never sent anywhere but Airtable.
+    </span>
+  </label>
+
+  <label>
+    <span class="lbl">Base id</span>
+    <input type="text" id="base" placeholder="appXXXXXXXXXXXXXX" autocomplete="off" spellcheck="false">
+    <span class="hint">Same base id you use in the main Cookbook app.</span>
+  </label>
+
+  <label>
+    <span class="lbl">Anthropic API key <span style="font-weight:400;color:var(--ink-faint)">(optional)</span></span>
+    <input type="password" id="key" placeholder="sk-ant-…" autocomplete="off" spellcheck="false">
+    <span class="hint">Only used when a page has no machine-readable recipe data. Sent browser-direct to Anthropic, never through anything else.</span>
+  </label>
+
+  <button class="btn primary" id="btnSave">Save</button>
+  <div class="status" id="status"></div>
+
+  <script src="lib/cookbook-units.js"></script>
+  <script src="lib/cookbook-data.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>

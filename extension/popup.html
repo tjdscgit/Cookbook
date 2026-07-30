@@ -1,0 +1,37 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Cookbook Clipper</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <h1><span class="mark"></span> Cookbook Clipper</h1>
+
+  <div id="noCreds" hidden>
+    <p class="status">Add your Airtable token and base id first.</p>
+    <button class="btn primary" id="btnOpenOptions">Open options</button>
+  </div>
+
+  <div id="main">
+    <button class="btn primary" id="btnClip">Clip this page</button>
+    <div class="status" id="status"></div>
+    <div class="preview" id="preview" hidden>
+      <img class="photo" id="pvPhoto" hidden>
+      <p class="name" id="pvName"></p>
+      <p class="meta" id="pvMeta"></p>
+      <div class="row"><b>Ingredients</b><span id="pvIngCount"></span></div>
+      <div class="row"><b>Steps</b><span id="pvStepCount"></span></div>
+      <button class="btn primary" id="btnSave" style="margin-top:10px">Save to Cookbook</button>
+      <button class="btn ghost" id="btnDiscard">Discard</button>
+    </div>
+  </div>
+
+  <div class="footer-link"><a href="#" id="linkOptions">Options</a></div>
+
+  <script src="lib/cookbook-units.js"></script>
+  <script src="lib/cookbook-data.js"></script>
+  <script src="lib/clip-extension.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

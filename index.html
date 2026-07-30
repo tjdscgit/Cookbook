@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en-AU">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#B3502E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<title>Cookbook</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="cookbook.css">
+</head>
+<body>
+
+<div class="app">
+
+  <!-- Desktop navigation. The mobile tab bar at the bottom of this file mirrors it; both drive the
+       same data-view buttons so there's one navigation handler, not two. -->
+  <nav class="sidenav">
+    <div class="brand"><span class="mark">🍳</span> Cookbook</div>
+    <button class="navbtn" data-view="recipes"><span class="ico">📖</span> Recipes</button>
+    <button class="navbtn" data-view="planner"><span class="ico">🗓️</span> Planner</button>
+    <button class="navbtn" data-view="shopping"><span class="ico">🛒</span> Shopping</button>
+    <button class="navbtn" data-view="collections"><span class="ico">🗂️</span> Collections</button>
+    <div class="navspacer"></div>
+    <button class="navbtn" id="navTheme"><span class="ico">🌗</span> Theme</button>
+    <button class="navbtn" id="navSettings"><span class="ico">⚙️</span> Settings</button>
+  </nav>
+
+  <main class="main">
+
+    <!-- ============ Recipes ============ -->
+    <section class="wrap view" id="viewRecipes">
+      <div id="setupBanner" class="banner" hidden>
+        <h3>Connect your Airtable base</h3>
+        <p style="margin:0 0 10px">Paste your personal access token and base id in settings, and your recipes will sync between this device and your phone.</p>
+        <button class="btn primary sm" id="bannerSettings">Open settings</button>
+      </div>
+
+      <div class="pagehead">
+        <div>
+          <h1>Recipes</h1>
+          <div class="sub" id="recipeCount"></div>
+        </div>
+        <div style="display:flex;gap:9px;flex-wrap:wrap">
+          <button class="btn" id="btnClip">✂️ Clip</button>
+          <button class="btn primary" id="btnNew">＋ New recipe</button>
+        </div>
+      </div>
+
+      <div class="tabs" id="sectionTabs">
+        <button class="tab" id="tabCookbook" aria-pressed="false">📖 Cookbook</button>
+        <button class="tab" id="tabToTry" aria-pressed="true">🔖 To Try</button>
+      </div>
+
+      <div class="searchrow">
+        <input type="search" id="search" placeholder="Search recipes, ingredients, tags…" autocomplete="off">
+        <button class="chip" id="filterFav" aria-pressed="false">★ Favourites</button>
+      </div>
+
+      <div class="chips" id="collectionChips"></div>
+      <div class="grid" id="recipeGrid"></div>
+      <div class="empty" id="recipeEmpty" hidden>
+        <div class="mark">📖</div>
+        <h3 id="recipeEmptyTitle">No recipes yet</h3>
+        <p id="recipeEmptyBody">Clip one from a website or photo, or write one in by hand.</p>
+      </div>
+    </section>
+
+    <!-- ============ Recipe detail ============ -->
+    <section class="wrap view" id="viewRecipe" hidden>
+      <button class="btn ghost sm" id="btnBack" style="margin-bottom:14px">← Back</button>
+      <div class="detail" id="recipeDetail"></div>
+    </section>
+
+    <!-- ============ Planner ============ -->
+    <section class="wrap view" id="viewPlanner" hidden>
+      <div class="pagehead">
+        <div>
+          <h1>Weekly planner</h1>
+          <div class="sub" id="weekLabel"></div>
+        </div>
+        <div style="display:flex;gap:9px">
+          <button class="btn sm" id="weekPrev">←</button>
+          <button class="btn sm" id="weekToday">This week</button>
+          <button class="btn sm" id="weekNext">→</button>
+          <button class="btn primary sm" id="btnMakeList">🛒 Make shopping list</button>
+        </div>
+      </div>
+      <div id="plannerGrid"></div>
+    </section>
+
+    <!-- ============ Shopping ============ -->
+    <section class="wrap view" id="viewShopping" hidden>
+      <div class="pagehead">
+        <div>
+          <h1>Shopping list</h1>
+          <div class="sub" id="shoppingSub"></div>
+        </div>
+        <div style="display:flex;gap:9px">
+          <button class="btn sm" id="btnClearChecked">Clear ticked</button>
+        </div>
+      </div>
+      <div class="searchrow">
+        <input type="text" id="manualItem" placeholder="Add an item…" autocomplete="off">
+        <button class="btn sm" id="btnAddItem">Add</button>
+      </div>
+      <div id="shoppingList"></div>
+    </section>
+
+    <!-- ============ Collections ============ -->
+    <section class="wrap view" id="viewCollections" hidden>
+      <div class="pagehead">
+        <div><h1>Collections</h1><div class="sub">Group recipes however you like.</div></div>
+        <button class="btn primary sm" id="btnNewCollection">＋ New collection</button>
+      </div>
+      <div class="grid" id="collectionGrid"></div>
+    </section>
+
+  </main>
+</div>
+
+<!-- Mobile bottom tab bar -->
+<nav class="tabbar">
+  <button class="navbtn" data-view="recipes"><span class="ico">📖</span> Recipes</button>
+  <button class="navbtn" data-view="planner"><span class="ico">🗓️</span> Planner</button>
+  <button class="navbtn" data-view="shopping"><span class="ico">🛒</span> Shopping</button>
+  <button class="navbtn" data-view="collections"><span class="ico">🗂️</span> Groups</button>
+  <button class="navbtn" id="navSettingsM"><span class="ico">⚙️</span> Settings</button>
+</nav>
+
+<!-- ============ Settings ============ -->
+<dialog id="dlgSettings">
+  <div class="dlg-head">
+    <h2>Settings</h2>
+    <button class="btn ghost sm" data-close>✕</button>
+  </div>
+  <div class="dlg-body">
+    <label class="field">
+      <span class="lbl">Airtable personal access token</span>
+      <input type="password" id="setPat" placeholder="pat…" autocomplete="off" spellcheck="false">
+      <span class="hint">Create one at airtable.com/create/tokens with the <b>data.records:read</b>, <b>data.records:write</b> and <b>schema.bases:read</b> scopes, and give it access to your Cookbook base. Stored in this browser only — never sent anywhere but Airtable.</span>
+    </label>
+    <label class="field">
+      <span class="lbl">Cookbook base id</span>
+      <input type="text" id="setBase" placeholder="appXXXXXXXXXXXXXX" autocomplete="off" spellcheck="false">
+      <span class="hint">Open the base in Airtable and copy the address bar — pasting the whole URL is fine, the id is picked out of it.</span>
+    </label>
+    <label class="field">
+      <span class="lbl">Anthropic API key <span style="font-weight:400;color:var(--ink-faint)">(optional)</span></span>
+      <input type="password" id="setKey" placeholder="sk-ant-…" autocomplete="off" spellcheck="false">
+      <span class="hint">Only needed for clipping recipes from <b>photos</b> and <b>social posts</b>. Website clipping and manual entry work without it. Roughly 5–6¢ per photo read.</span>
+    </label>
+    <label class="field">
+      <span class="lbl">Measurements</span>
+      <select id="setSystem">
+        <option value="metric">Australian / metric — 1 tbsp = 20 ml, 1 cup = 250 ml</option>
+        <option value="us">US — 1 tbsp = 15 ml, 1 cup = 240 ml</option>
+      </select>
+      <span class="hint">Only affects how amounts are combined on the shopping list. Recipes always display the units they were written in.</span>
+    </label>
+    <div id="connStatus" style="font-size:14px;min-height:22px"></div>
+  </div>
+  <div class="dlg-foot">
+    <button class="btn" id="btnTest">Test connection</button>
+    <button class="btn primary" id="btnSaveSettings">Save</button>
+  </div>
+</dialog>
+
+<!-- ============ Recipe editor ============ -->
+<dialog id="dlgEdit">
+  <div class="dlg-head">
+    <h2 id="editTitle">New recipe</h2>
+    <button class="btn ghost sm" data-close>✕</button>
+  </div>
+  <div class="dlg-body">
+    <label class="field">
+      <span class="lbl">Name</span>
+      <input type="text" id="edName" placeholder="Lemon drizzle cake">
+    </label>
+    <label class="field">
+      <span class="lbl">Description</span>
+      <textarea id="edDesc" rows="2" placeholder="A short note about the recipe…"></textarea>
+    </label>
+
+    <div class="field">
+      <span class="lbl">Photo</span>
+      <div style="display:flex;gap:10px;align-items:flex-start">
+        <img id="edPhotoPreview" hidden style="width:96px;height:96px;object-fit:cover;border-radius:10px;flex:none">
+        <div style="flex:1;min-width:0">
+          <input type="url" id="edPhotoUrl" placeholder="https://…">
+          <span class="hint" id="edPhotoHint" hidden>Grabbed from the source page — replace the URL above or clear it if it's wrong.</span>
+        </div>
+        <button class="btn sm ghost" id="edPhotoClear" style="flex:none">Clear</button>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px">
+      <label class="field"><span class="lbl">Serves</span><input type="number" id="edServings" min="1" step="1" value="4"></label>
+      <label class="field"><span class="lbl">Unit</span><input type="text" id="edServingUnit" value="servings"></label>
+      <label class="field"><span class="lbl">Prep (min)</span><input type="number" id="edPrep" min="0" step="5"></label>
+      <label class="field"><span class="lbl">Cook (min)</span><input type="number" id="edCook" min="0" step="5"></label>
+    </div>
+
+    <div class="field">
+      <span class="lbl">Ingredients</span>
+      <div id="edIngredients"></div>
+      <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+        <button class="btn sm" id="edAddIng">＋ Add ingredient</button>
+        <button class="btn sm ghost" id="edPasteIng">📋 Paste a list</button>
+      </div>
+      <span class="hint">Type amounts however you normally would — “2 1/2 cups”, “200g”, “a pinch”. They're parsed into scalable amounts automatically.</span>
+    </div>
+
+    <div class="field">
+      <span class="lbl">Method</span>
+      <div id="edSteps"></div>
+      <button class="btn sm" id="edAddStep" style="margin-top:8px">＋ Add step</button>
+      <span class="hint">Tick the ingredients each step uses — those are what show beside the step when you're cooking.</span>
+    </div>
+
+    <label class="field">
+      <span class="lbl">Collections</span>
+      <div class="chips" id="edCollections" style="margin-bottom:0"></div>
+    </label>
+
+    <label class="field">
+      <span class="lbl">Notes</span>
+      <textarea id="edNotes" rows="3" placeholder="Worked better with half the sugar. Freezes well."></textarea>
+    </label>
+
+    <label class="field">
+      <span class="lbl">Source URL</span>
+      <input type="url" id="edSource" placeholder="https://…">
+    </label>
+  </div>
+  <div class="dlg-foot">
+    <button class="btn danger" id="btnDelete" hidden>Delete</button>
+    <button class="btn" data-close>Cancel</button>
+    <button class="btn primary" id="btnSaveRecipe">Save recipe</button>
+  </div>
+</dialog>
+
+<!-- ============ Clipper ============ -->
+<dialog id="dlgClip">
+  <div class="dlg-head">
+    <h2>Clip a recipe</h2>
+    <button class="btn ghost sm" data-close>✕</button>
+  </div>
+  <div class="dlg-body">
+    <div class="chips" id="clipTabs">
+      <button class="chip" data-clip="url" aria-pressed="true">🔗 Website</button>
+      <button class="chip" data-clip="photo" aria-pressed="false">📷 Photo</button>
+      <button class="chip" data-clip="text" aria-pressed="false">📝 Paste text</button>
+    </div>
+
+    <div class="clip-pane" data-pane="url">
+      <label class="field">
+        <span class="lbl">Recipe URL</span>
+        <input type="url" id="clipUrl" placeholder="https://…">
+        <span class="hint">Most recipe sites publish machine-readable recipe data, which is read directly — accurate, instant, and free. Sites without it fall back to Claude, which needs an API key.</span>
+      </label>
+    </div>
+
+    <div class="clip-pane" data-pane="photo" hidden>
+      <label class="field">
+        <span class="lbl">Photo of a recipe</span>
+        <input type="file" id="clipPhoto" accept="image/*" capture="environment">
+        <span class="hint">A cookbook page, a handwritten card, or a screenshot of a social post. Needs an Anthropic API key — roughly 5–6¢ per photo.</span>
+      </label>
+      <img id="clipPreview" hidden style="border-radius:var(--r-sm);margin-top:10px;max-height:220px;object-fit:contain">
+    </div>
+
+    <div class="clip-pane" data-pane="text" hidden>
+      <label class="field">
+        <span class="lbl">Paste the recipe</span>
+        <textarea id="clipText" rows="9" placeholder="Paste an Instagram caption, an email, or text copied off a page…"></textarea>
+        <span class="hint">Needs an Anthropic API key. Use this for social posts, which can't be fetched directly.</span>
+      </label>
+    </div>
+
+    <div id="clipStatus" style="font-size:14px;min-height:22px;margin-top:6px"></div>
+  </div>
+  <div class="dlg-foot">
+    <button class="btn" data-close>Cancel</button>
+    <button class="btn primary" id="btnDoClip">Read recipe</button>
+  </div>
+</dialog>
+
+<!-- ============ Add to planner ============ -->
+<dialog id="dlgAddMeal">
+  <div class="dlg-head">
+    <h2 id="addMealTitle">Add to planner</h2>
+    <button class="btn ghost sm" data-close>✕</button>
+  </div>
+  <div class="dlg-body">
+    <label class="field">
+      <span class="lbl">Recipe</span>
+      <select id="mealRecipe"></select>
+    </label>
+    <label class="field">
+      <span class="lbl">Servings</span>
+      <input type="number" id="mealServings" min="1" step="1" value="4">
+    </label>
+  </div>
+  <div class="dlg-foot">
+    <button class="btn" data-close>Cancel</button>
+    <button class="btn primary" id="btnAddMeal">Add</button>
+  </div>
+</dialog>
+
+<!-- Cook mode is built and torn down by cookbook-ui.js so the wake lock has a clear lifecycle. -->
+<div id="cookRoot"></div>
+
+<script src="cookbook-units.js"></script>
+<script src="cookbook-data.js"></script>
+<script src="cookbook-clip.js"></script>
+<script src="cookbook-plan.js"></script>
+<script src="cookbook-ui.js"></script>
+</body>
+</html>
