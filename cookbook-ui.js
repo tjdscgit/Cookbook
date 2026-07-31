@@ -25,7 +25,7 @@
     collections: [],
     recipesById: {},
     // filters
-    section: "toTry",  // "cookbook" (tried) or "toTry" (not yet tried)
+    section: localStorage.getItem("cookbook_section") || "toTry",  // "cookbook" (tried) or "toTry" (not yet tried)
     search: "",
     collectionId: null,
     favOnly: false,
@@ -198,8 +198,8 @@
       e.currentTarget.setAttribute("aria-pressed", String(S.favOnly));
       renderGrid();
     };
-    $("#tabCookbook").onclick = () => { S.section = "cookbook"; renderGrid(); };
-    $("#tabToTry").onclick = () => { S.section = "toTry"; renderGrid(); };
+    $("#tabCookbook").onclick = () => { S.section = "cookbook"; localStorage.setItem("cookbook_section", S.section); renderGrid(); };
+    $("#tabToTry").onclick = () => { S.section = "toTry"; localStorage.setItem("cookbook_section", S.section); renderGrid(); };
     $("#btnNew").onclick = () => openEditor(blankRecipe());
     $("#btnClip").onclick = openClip;
   }
