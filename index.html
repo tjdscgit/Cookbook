@@ -55,7 +55,7 @@
       </div>
 
       <div class="searchrow">
-        <input type="search" id="search" placeholder="Search recipes, ingredients, tags…" autocomplete="off">
+        <input type="search" id="search" name="cookbook-recipe-search" placeholder="Search recipes, ingredients, tags…" autocomplete="off" data-lpignore="true" data-1p-ignore data-bwignore="true">
         <button class="chip" id="filterFav" aria-pressed="false">★ Favourites</button>
       </div>
 
@@ -139,7 +139,7 @@
   <div class="dlg-body">
     <label class="field">
       <span class="lbl">Airtable personal access token</span>
-      <input type="password" id="setPat" placeholder="pat…" autocomplete="off" spellcheck="false">
+      <input type="password" id="setPat" name="cookbook-airtable-token" placeholder="pat…" autocomplete="new-password" spellcheck="false" data-lpignore="true" data-1p-ignore data-bwignore="true">
       <span class="hint">Create one at airtable.com/create/tokens with the <b>data.records:read</b>, <b>data.records:write</b> and <b>schema.bases:read</b> scopes, and give it access to your Cookbook base. Stored in this browser only — never sent anywhere but Airtable.</span>
     </label>
     <label class="field">
@@ -149,7 +149,7 @@
     </label>
     <label class="field">
       <span class="lbl">Anthropic API key <span style="font-weight:400;color:var(--ink-faint)">(optional)</span></span>
-      <input type="password" id="setKey" placeholder="sk-ant-…" autocomplete="off" spellcheck="false">
+      <input type="password" id="setKey" name="cookbook-anthropic-key" placeholder="sk-ant-…" autocomplete="new-password" spellcheck="false" data-lpignore="true" data-1p-ignore data-bwignore="true">
       <span class="hint">Only needed for clipping recipes from <b>photos</b> and <b>social posts</b>. Website clipping and manual entry work without it. Roughly 5–6¢ per photo read.</span>
     </label>
     <label class="field">
