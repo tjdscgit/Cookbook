@@ -161,12 +161,12 @@
       <span class="hint">Only affects how amounts are combined on the shopping list. Recipes always display the units they were written in.</span>
     </label>
     <div id="connStatus" style="font-size:14px;min-height:22px"></div>
-    <label class="field">
+    <div class="field">
       <span class="lbl">Import recipes</span>
       <input type="file" id="setImportFile" accept="application/json,.json">
       <span class="hint">A JSON file exported from another recipe app and converted with <b>scripts/convert-flavorish.mjs</b>. Recipes already in the cookbook under the same name are skipped, so running it twice is safe.</span>
       <button class="btn sm" id="btnImport" type="button" style="align-self:flex-start;margin-top:8px">Import</button>
-    </label>
+    </div>
     <div id="importStatus" style="font-size:14px;min-height:22px"></div>
   </div>
   <div class="dlg-foot">
