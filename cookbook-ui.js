@@ -203,19 +203,32 @@
       return;
     }
 
-    // Work against the live cookbook rather than whatever's on screen, so an import run from a
-    // stale tab can't duplicate everything.
-    const { recipes: existing, collections } = await Data.loadAll();
+    el.innerHTML = '<span class="spinner"></span> Checking what\'s already there…';
+
+    let existing, collections;
+    try {
+      // Work against the live cookbook rather than whatever's on screen, so an import run from a
+      // stale tab can't duplicate everything.
+      ({ recipes: existing, collections } = await Data.loadAll());
+    } catch (e) {
+      el.innerHTML = `<span style="color:var(--danger)">Couldn't load the cookbook: ${escapeHtml(e.message)}</span>`;
+      return;
+    }
     const have = new Set(existing.map((r) => normaliseName(r.name)));
 
     // Collections are records the recipes link to by id, so any the import mentions have to
     // exist before the recipes are written.
     const byName = new Map(collections.map((c) => [normaliseName(c.name), c]));
     const wanted = [...new Set(incoming.flatMap((r) => r.collections || []))];
-    for (const name of wanted) {
-      if (byName.has(normaliseName(name))) continue;
-      const created = await Data.createCollection(name, "", byName.size + 1);
-      byName.set(normaliseName(name), created);
+    try {
+      for (const name of wanted) {
+        if (byName.has(normaliseName(name))) continue;
+        const created = await Data.createCollection(name, "", byName.size + 1);
+        byName.set(normaliseName(name), created);
+      }
+    } catch (e) {
+      el.innerHTML = `<span style="color:var(--danger)">Couldn't create collections: ${escapeHtml(e.message)}</span>`;
+      return;
     }
 
     const todo = incoming.filter((r) => !have.has(normaliseName(r.name)));
