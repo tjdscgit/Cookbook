@@ -176,6 +176,95 @@
         el.innerHTML = `<span style="color:var(--danger)">✕ ${escapeHtml(e.message)}</span>`;
       }
     };
+
+    $("#btnImport").onclick = runImport;
+  }
+
+  // Bulk import from another recipe app's export, converted to app shape by
+  // scripts/convert-flavorish.mjs. The file is read here in the browser and pushed straight to
+  // Airtable through the normal Data layer, so the token stays where it already lives and no
+  // third party ever sees either the recipes or the credentials.
+  async function runImport() {
+    const el = $("#importStatus");
+    const file = $("#setImportFile").files[0];
+    if (!file) { el.innerHTML = '<span style="color:var(--danger)">Choose a file first.</span>'; return; }
+    if (!Data.hasCreds()) { el.innerHTML = '<span style="color:var(--danger)">Save your token and base id first.</span>'; return; }
+
+    let payload;
+    try {
+      payload = JSON.parse(await file.text());
+    } catch {
+      el.innerHTML = '<span style="color:var(--danger)">That file isn\'t valid JSON.</span>';
+      return;
+    }
+    const incoming = Array.isArray(payload) ? payload : payload.recipes;
+    if (!Array.isArray(incoming) || !incoming.length) {
+      el.innerHTML = '<span style="color:var(--danger)">No recipes found in that file.</span>';
+      return;
+    }
+
+    // Work against the live cookbook rather than whatever's on screen, so an import run from a
+    // stale tab can't duplicate everything.
+    const { recipes: existing, collections } = await Data.loadAll();
+    const have = new Set(existing.map((r) => normaliseName(r.name)));
+
+    // Collections are records the recipes link to by id, so any the import mentions have to
+    // exist before the recipes are written.
+    const byName = new Map(collections.map((c) => [normaliseName(c.name), c]));
+    const wanted = [...new Set(incoming.flatMap((r) => r.collections || []))];
+    for (const name of wanted) {
+      if (byName.has(normaliseName(name))) continue;
+      const created = await Data.createCollection(name, "", byName.size + 1);
+      byName.set(normaliseName(name), created);
+    }
+
+    const todo = incoming.filter((r) => !have.has(normaliseName(r.name)));
+    const skipped = incoming.length - todo.length;
+    let done = 0, failed = 0;
+
+    // One at a time, and with the photo as a follow-up call: Airtable fetches an attachment URL
+    // itself, and a single dead image URL must not cost the recipe it belongs to.
+    for (const r of todo) {
+      el.innerHTML = `<span class="spinner"></span> Importing ${done + 1} of ${todo.length} — ${escapeHtml(r.name)}`;
+      try {
+        const saved = await Data.createRecipe({
+          name: r.name,
+          description: r.description || "",
+          servings: r.servings,
+          servingUnit: r.servingUnit || "servings",
+          prepMinutes: r.prepMinutes,
+          cookMinutes: r.cookMinutes,
+          ingredients: r.ingredients || [],
+          steps: r.steps || [],
+          notes: r.notes || "",
+          sourceUrl: r.sourceUrl || "",
+          sourceType: r.sourceType || "Manual",
+          tags: r.tags || [],
+          favourite: Boolean(r.favourite),
+          tried: r.tried !== false,
+          collectionIds: (r.collections || [])
+            .map((n) => (byName.get(normaliseName(n)) || {}).id)
+            .filter(Boolean),
+        });
+        if (r.photoUrl) {
+          await Data.setPhotoFromUrl(saved.id, r.photoUrl).catch(() => {});
+        }
+        done++;
+      } catch (e) {
+        failed++;
+        console.warn("import failed:", r.name, e);
+      }
+    }
+
+    const parts = [`Imported ${done}.`];
+    if (skipped) parts.push(`${skipped} already in the cookbook.`);
+    if (failed) parts.push(`${failed} failed — see the browser console.`);
+    el.innerHTML = `<span style="color:${failed ? "var(--danger)" : "var(--herb)"}">${escapeHtml(parts.join(" "))}</span>`;
+    await refresh();
+  }
+
+  function normaliseName(s) {
+    return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
   }
 
   function openSettings() {
