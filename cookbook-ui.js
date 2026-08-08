@@ -25,7 +25,7 @@
     collections: [],
     recipesById: {},
     // filters
-    section: localStorage.getItem("cookbook_section") || "toTry",  // "cookbook" (tried) or "toTry" (not yet tried)
+    section: "cookbook",  // "cookbook" (tried) or "toTry" (not yet tried) — always starts here, never remembered
     search: "",
     collectionId: null,
     favOnly: false,
@@ -59,6 +59,7 @@
     wirePlanner();
     wireShopping();
     wireCollections();
+    wireWakeLock();
 
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("./sw.js").catch(() => {});
@@ -107,6 +108,28 @@
     $$("[data-close]").forEach((b) => {
       b.onclick = () => b.closest("dialog").close();
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Wake lock
+  // ---------------------------------------------------------------------------
+  // Keeps the screen on everywhere in the app, not just Cook Mode — this is a kitchen tablet/phone
+  // sitting on a bench, and it locking mid-shop or mid-browse is just as annoying as mid-recipe.
+  // The lock is released by the browser whenever the tab is backgrounded, so it has to be
+  // re-requested every time the app becomes visible again, or the screen goes back to sleeping.
+  let wakeLock = null;
+
+  function wireWakeLock() {
+    requestWakeLock();
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") requestWakeLock();
+    });
+  }
+
+  async function requestWakeLock() {
+    if (!("wakeLock" in navigator)) return;
+    try { wakeLock = await navigator.wakeLock.request("screen"); }
+    catch { /* denied or unsupported — the app still works, the screen just sleeps normally */ }
   }
 
   function setView(view) {
@@ -300,8 +323,11 @@
       e.currentTarget.setAttribute("aria-pressed", String(S.favOnly));
       renderGrid();
     };
-    $("#tabCookbook").onclick = () => { S.section = "cookbook"; localStorage.setItem("cookbook_section", S.section); renderGrid(); };
-    $("#tabToTry").onclick = () => { S.section = "toTry"; localStorage.setItem("cookbook_section", S.section); renderGrid(); };
+    // Switching tabs while the app is open is fine to keep in memory (S.section), but it's
+    // deliberately never written to localStorage — a reload or a fresh app-switch launch should
+    // always land on Cookbook, not wherever you happened to leave off.
+    $("#tabCookbook").onclick = () => { S.section = "cookbook"; renderGrid(); };
+    $("#tabToTry").onclick = () => { S.section = "toTry"; renderGrid(); };
     $("#btnNew").onclick = () => openEditor(blankRecipe());
     $("#btnClip").onclick = openClip;
   }
@@ -621,10 +647,6 @@
   // ---------------------------------------------------------------------------
   // Cook mode
   // ---------------------------------------------------------------------------
-  // Built and torn down rather than hidden, so the wake lock has an unambiguous lifecycle: it is
-  // acquired when the overlay opens and released when it closes or the tab is hidden.
-  let wakeLock = null;
-
   async function openCookMode(recipe, factor) {
     const scaled = Units.scaleIngredients(recipe.ingredients, factor);
     const byId = Object.fromEntries(scaled.map((i) => [i.id, i]));
@@ -697,33 +719,13 @@
       else if (e.key === "ArrowLeft" && idx > 0) { idx--; paint(); }
     }
 
-    async function close() {
+    function close() {
       document.removeEventListener("keydown", onKey);
-      document.removeEventListener("visibilitychange", onVisible);
       wrap.remove();
-      await releaseWakeLock();
-    }
-
-    // The lock is dropped by the browser whenever the tab is backgrounded, so it has to be
-    // re-acquired on return or the screen starts sleeping again mid-recipe.
-    async function onVisible() {
-      if (document.visibilityState === "visible" && root.contains(wrap)) await requestWakeLock();
     }
 
     document.addEventListener("keydown", onKey);
-    document.addEventListener("visibilitychange", onVisible);
     paint();
-    await requestWakeLock();
-  }
-
-  async function requestWakeLock() {
-    if (!("wakeLock" in navigator)) return;
-    try { wakeLock = await navigator.wakeLock.request("screen"); }
-    catch { /* denied or unsupported — cooking still works, the screen just sleeps */ }
-  }
-  async function releaseWakeLock() {
-    try { if (wakeLock) await wakeLock.release(); } catch {}
-    wakeLock = null;
   }
 
   // ---------------------------------------------------------------------------
