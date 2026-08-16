@@ -101,7 +101,7 @@ Rules that matter:
   // The Claude call
   // ---------------------------------------------------------------------------
   // Goes browser-direct to api.anthropic.com with the key the user pasted into settings — same
-  // trust model as the Airtable token, no proxy of ours in between.
+  // trust model as the Firebase session, no proxy of ours in between.
   async function callClaude(content) {
     const key = Data.creds().anthropic;
     if (!key) throw new Error("This needs an Anthropic API key. Add one under settings ⚙ — or use a website URL, which doesn't need one.");

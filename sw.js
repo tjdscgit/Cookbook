@@ -1,4 +1,6 @@
-const CACHE_NAME = "cookbook-shell-v1";
+// Bumped to v2 for the Airtable → Firestore move. A device still holding the v1 shell would keep
+// running the old data layer against a backend that no longer answers, so the old cache has to go.
+const CACHE_NAME = "cookbook-shell-v2";
 const SHELL_FILES = [
   "./index.html",
   "./cookbook.css",
@@ -38,7 +40,7 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   const url = new URL(req.url);
-  if (url.origin !== self.location.origin) return;  // never touch Airtable/Anthropic/cross-origin
+  if (url.origin !== self.location.origin) return;  // never touch Firestore/Anthropic/cross-origin
   if (req.method !== "GET") return;
 
   event.respondWith(

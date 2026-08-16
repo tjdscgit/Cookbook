@@ -179,8 +179,8 @@
   function wireSettings() {
     $("#btnSaveSettings").onclick = async () => {
       Data.setCreds({
-        pat: $("#setPat").value,
-        base: $("#setBase").value,
+        project: $("#setProject").value,
+        apiKey: $("#setApiKey").value,
         anthropic: $("#setKey").value,
       });
       Data.setUnitSystem($("#setSystem").value);
@@ -190,28 +190,61 @@
 
     $("#btnTest").onclick = async () => {
       const el = $("#connStatus");
-      Data.setCreds({ pat: $("#setPat").value, base: $("#setBase").value });
+      Data.setCreds({ project: $("#setProject").value, apiKey: $("#setApiKey").value });
       el.innerHTML = '<span class="spinner"></span> Checking…';
       try {
         await Data.testConnection();
-        el.innerHTML = '<span style="color:var(--herb)">✓ Connected — all four tables found.</span>';
+        el.innerHTML = '<span style="color:var(--herb)">✓ Connected — Firestore is reachable and your account can read it.</span>';
       } catch (e) {
         el.innerHTML = `<span style="color:var(--danger)">✕ ${escapeHtml(e.message)}</span>`;
       }
     };
 
+    // Signing in has to save the project config first: the sign-in call needs the API key, and the
+    // user has almost certainly just pasted both without pressing Save.
+    $("#btnSignIn").onclick = async () => {
+      const el = $("#connStatus");
+      Data.setCreds({ project: $("#setProject").value, apiKey: $("#setApiKey").value });
+      el.innerHTML = '<span class="spinner"></span> Signing in…';
+      try {
+        await Data.signIn($("#setEmail").value, $("#setPassword").value);
+        $("#setPassword").value = "";
+        el.innerHTML = '<span style="color:var(--herb)">✓ Signed in.</span>';
+        renderAuth();
+        await refresh();
+      } catch (e) {
+        el.innerHTML = `<span style="color:var(--danger)">✕ ${escapeHtml(e.message)}</span>`;
+      }
+    };
+
+    $("#btnSignOut").onclick = () => {
+      Data.signOut();
+      renderAuth();
+      $("#connStatus").textContent = "";
+      $("#setupBanner").hidden = false;
+    };
+
     $("#btnImport").onclick = runImport;
+  }
+
+  // The account block is either the sign-in form or a "signed in as" line, never both.
+  function renderAuth() {
+    const inn = Data.isSignedIn();
+    $("#authSignedIn").hidden = !inn;
+    $("#authSignedOut").hidden = inn;
+    $("#authEmail").textContent = Data.creds().email || "";
   }
 
   // Bulk import from another recipe app's export, converted to app shape by
   // scripts/convert-flavorish.mjs. The file is read here in the browser and pushed straight to
-  // Airtable through the normal Data layer, so the token stays where it already lives and no
-  // third party ever sees either the recipes or the credentials.
+  // Firestore through the normal Data layer, so the session stays where it already lives and no
+  // third party ever sees either the recipes or the credentials. This is also the migration path
+  // off Airtable: the same export file, re-imported into the new backend.
   async function runImport() {
     const el = $("#importStatus");
     const file = $("#setImportFile").files[0];
     if (!file) { el.innerHTML = '<span style="color:var(--danger)">Choose a file first.</span>'; return; }
-    if (!Data.hasCreds()) { el.innerHTML = '<span style="color:var(--danger)">Save your token and base id first.</span>'; return; }
+    if (!Data.hasCreds()) { el.innerHTML = '<span style="color:var(--danger)">Set up your Firebase project and sign in first.</span>'; return; }
 
     let payload;
     try {
@@ -258,8 +291,8 @@
     const skipped = incoming.length - todo.length;
     let done = 0, failed = 0;
 
-    // One at a time, and with the photo as a follow-up call: Airtable fetches an attachment URL
-    // itself, and a single dead image URL must not cost the recipe it belongs to.
+    // One at a time, and with the photo as a follow-up call, so a single bad image URL can't cost
+    // the recipe it belongs to.
     for (const r of todo) {
       el.innerHTML = `<span class="spinner"></span> Importing ${done + 1} of ${todo.length} — ${escapeHtml(r.name)}`;
       try {
@@ -305,11 +338,12 @@
 
   function openSettings() {
     const c = Data.creds();
-    $("#setPat").value = c.pat;
-    $("#setBase").value = c.base;
+    $("#setProject").value = c.project;
+    $("#setApiKey").value = c.apiKey;
     $("#setKey").value = c.anthropic;
     $("#setSystem").value = Data.getUnitSystem();
     $("#connStatus").textContent = "";
+    renderAuth();
     $("#dlgSettings").showModal();
   }
 
@@ -1059,7 +1093,7 @@
       }
 
       $("#dlgClip").close();
-      // Every clip lands in the editor for review — nothing reaches Airtable until Save is pressed.
+      // Every clip lands in the editor for review — nothing is saved until Save is pressed.
       recipe.id = null;
       openEditor(recipe);
       if (recipe.confidence === "low") {

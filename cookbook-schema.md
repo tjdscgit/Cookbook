@@ -1,47 +1,65 @@
-# Cookbook — Airtable schema
+# Cookbook — Firestore schema
 
-The app addresses tables **by name**, so these names must match exactly. Field names likewise —
-rename one in Airtable and you must change the matching entry in the `F` map at the top of
-[cookbook-data.js](cookbook-data.js).
+The app addresses collections and fields **by name**, so these names must match exactly. Rename one
+and you must change the matching entry in the `F` map at the top of [cookbook-data.js](cookbook-data.js).
 
-## Why ingredients and steps are JSON
+Nothing here needs creating in advance. Unlike Airtable, Firestore has no schema to set up — a
+collection springs into existence the first time a document is written to it. Create the database,
+publish [firestore.rules](firestore.rules), and the app does the rest.
 
-Airtable's free plan allows **1,000 records per base**. Normalised — one record per ingredient and
-one per step — a single recipe would cost roughly 20 records, capping the cookbook at about **45
-recipes**. Stored as JSON on the recipe record, one recipe costs **one record**, so 1,000 recipes
-fit comfortably.
+## Why this replaced Airtable
 
-The trade-off is real and worth knowing: you can't edit an individual ingredient from Airtable's
-grid view. The app is the editing surface. Everything you'd actually want to browse in Airtable —
-names, collections, favourites, notes, photos — stays as proper fields.
+Airtable's free plan caps API calls at **1,000 per month**. A cookbook that reloads whenever you
+open it reaches that on its own, and the cap is not a rate limit — it doesn't clear by waiting. The
+practical ceiling had nothing to do with how many recipes you had.
 
-If you ever outgrow this, Airtable Team raises the ceiling to 50,000 records and the JSON fields can
-be split into real tables then.
+Firestore's free tier is 50,000 reads and 20,000 writes **per day**. A full load of a 51-recipe
+cookbook costs about 51 reads.
+
+## What changed in the data model
+
+Under Airtable, ingredients and steps were **JSON strings** stuffed into long-text fields, because
+the free plan capped a base at 1,000 records and one record per ingredient would have limited the
+cookbook to roughly 45 recipes. That constraint is gone: they are now real nested arrays of objects,
+and a document is close to a literal serialisation of the app-side recipe object.
+
+`parseRecipe` still runs the old JSON strings through `safeParseJson`, so a document carried over
+from the Airtable era reads correctly and is rewritten in the new shape on its next save.
+
+Photos also changed. Airtable fetched an image URL and stored its own copy; Firestore stores the URL
+as given, so a recipe photo stays hotlinked from wherever it was clipped. Simpler and free, at the
+cost of a photo that can vanish if the source site takes it down. Firebase Cloud Storage would fix
+that but requires a billing account, which this app deliberately avoids.
 
 ---
 
-## Table: `Recipes`
+## Collection: `recipes`
+
+Document id: auto-generated.
 
 | Field | Type | Notes |
 |---|---|---|
-| `Name` | Single line text | **Primary field** |
-| `Description` | Long text | |
-| `Photo` | Attachment | |
-| `Source URL` | URL | |
-| `Source Type` | Single select | Options: `Website`, `Photo`, `Social`, `Manual` |
-| `Servings` | Number (integer) | The serving count the stored amounts refer to |
-| `Serving Unit` | Single line text | "servings", "slices", "cookies" |
-| `Prep Minutes` | Number (integer) | |
-| `Cook Minutes` | Number (integer) | |
-| `Collections` | Link to `Collections` | Allow linking to multiple |
-| `Favourite` | Checkbox | |
-| `Tried` | Checkbox | Ticked = shown in the "Cookbook" section; unticked = "To Try" |
-| `Tags` | Multiple select | Start empty; the app writes new options as needed |
-| `Ingredients JSON` | Long text | See below |
-| `Steps JSON` | Long text | See below |
-| `Notes` | Long text | Your own notes |
+| `name` | string | |
+| `description` | string | |
+| `photoUrl` | string | Written only by `setPhotoFromUrl`, never by a normal save |
+| `sourceUrl` | string | |
+| `sourceType` | string | One of `Website`, `Photo`, `Social`, `Manual` |
+| `servings` | integer | The serving count the stored amounts refer to |
+| `servingUnit` | string | "servings", "slices", "cookies" |
+| `prepMinutes` | integer \| null | |
+| `cookMinutes` | integer \| null | |
+| `collectionIds` | array of string | Document ids from `collections` |
+| `favourite` | boolean | |
+| `tried` | boolean | True = shown in "Cookbook"; false = "To Try" |
+| `tags` | array of string | |
+| `ingredients` | array of map | See below |
+| `steps` | array of map | See below |
+| `notes` | string | Your own notes |
 
-### `Ingredients JSON`
+Saves pass an **update mask** naming exactly these fields, so anything you add to a document by hand
+in the Firestore console survives a save from the app.
+
+### `ingredients`
 
 ```jsonc
 [
@@ -58,7 +76,7 @@ be split into real tables then.
 - `scalable: false` — this amount does not multiply when servings change. Used for pinches,
   "to taste", and "oil for greasing".
 
-### `Steps JSON`
+### `steps`
 
 ```jsonc
 [
@@ -68,40 +86,44 @@ be split into real tables then.
 ```
 
 `ingredientIds` is what drives the per-step ingredient display — the reason this app exists. An id
-listed here that doesn't exist in `Ingredients JSON` is ignored rather than rendered blank.
+listed here that doesn't exist in `ingredients` is ignored rather than rendered blank.
 
 ---
 
-## Table: `Collections`
+## Collection: `collections`
+
+Document id: auto-generated.
 
 | Field | Type | Notes |
 |---|---|---|
-| `Name` | Single line text | **Primary field** |
-| `Emoji` | Single line text | Optional |
-| `Order` | Number (integer) | Sort order in the filter bar |
-| `Description` | Long text | Optional |
+| `name` | string | |
+| `emoji` | string | Optional |
+| `order` | integer | Sort order in the filter bar |
+| `description` | string | Optional |
 
-The reciprocal `Recipes` link field is created automatically by Airtable when you add the
-`Collections` link on the Recipes table.
+The link is one-directional: a recipe holds `collectionIds`, and a collection knows nothing about
+its recipes. Airtable maintained a reciprocal link field automatically; Firestore does not, and the
+app never needed it.
 
 ---
 
-## Table: `Meal Plans`
+## Collection: `mealPlans`
 
-One record per **week**, not per meal. Per-meal records would cost ~1,100 records a year and
-exhaust the free tier on their own; per-week costs 52.
+**Document id is the week's Monday** as `YYYY-MM-DD`. That is the one real design change from the
+Airtable version: loading a week is now a single get by key, with no query, no index, and no
+`filterByFormula`. Saving upserts, so a week that has never been planned needs no separate create.
 
 | Field | Type | Notes |
 |---|---|---|
-| `Week Starting` | Date (ISO, `YYYY-MM-DD`) | **Primary field.** Always a Monday |
-| `Plan JSON` | Long text | |
-| `Notes` | Long text | |
+| `weekStarting` | string | Same as the document id, stored again for legibility |
+| `plan` | map | |
+| `notes` | string | |
 
 ```jsonc
 {
   "2026-07-27": {
-    "Dinner": [ { "recipeId": "recXXXXXXXXXXXXXX", "servings": 8 } ],
-    "Lunch":  [ { "recipeId": "recYYYYYYYYYYYYYY", "servings": 2 } ]
+    "Dinner": [ { "recipeId": "aB3xK9…", "servings": 8 } ],
+    "Lunch":  [ { "recipeId": "cD7mP2…", "servings": 2 } ]
   }
 }
 ```
@@ -110,20 +132,22 @@ Meal keys are `Breakfast`, `Lunch`, `Dinner`.
 
 ---
 
-## Table: `Shopping Lists`
+## Collection: `shoppingLists`
+
+Document id: auto-generated.
 
 | Field | Type | Notes |
 |---|---|---|
-| `Name` | Single line text | **Primary field** |
-| `Week Starting` | Date | Optional — links the list to a planned week |
-| `Items JSON` | Long text | |
-| `Done` | Checkbox | |
+| `name` | string | |
+| `weekStarting` | string | Optional — links the list to a planned week |
+| `items` | array of map | |
+| `done` | boolean | |
 
 ```jsonc
 [
   { "id": "x1", "name": "self-raising flour", "qty": 7.5, "unit": "cup",
     "aisle": "Baking", "checked": false, "manual": false,
-    "fromRecipes": ["recXXXXXXXXXXXXXX"] }
+    "fromRecipes": ["aB3xK9…"] }
 ]
 ```
 
@@ -132,12 +156,11 @@ the planner; generated items are replaced.
 
 ---
 
-## Token scopes
+## Security
 
-Create a token at [airtable.com/create/tokens](https://airtable.com/create/tokens) with:
+The project id and web API key in the browser are **public identifiers, not secrets** — they name
+the project and grant nothing. What guards the data is being signed in, plus the rules in
+[firestore.rules](firestore.rules), which restrict every document to one account's uid.
 
-- `data.records:read`
-- `data.records:write`
-- `schema.bases:read`
-
-and grant it access to the Cookbook base specifically.
+This is a better arrangement than the Airtable token it replaced. That token *was* a secret, it sat
+in `localStorage`, and anyone who got it held full read/write access to the base.

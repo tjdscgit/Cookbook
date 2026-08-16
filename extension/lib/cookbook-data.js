@@ -3,16 +3,21 @@
 // for why). The extension only actually calls creds()/hasCreds()/setCreds()/createRecipe() out of
 // this file, but kept whole rather than trimmed so the two copies never structurally diverge.
 //
-// The only file that knows Airtable exists.
+// The only file that knows Firestore exists.
 //
 // Everything above this layer works with plain app-side objects — a recipe is {id, name,
-// ingredients:[...], steps:[...]}, not an Airtable record. Keeping the translation in one place is
+// ingredients:[...], steps:[...]}, not a database record. Keeping the translation in one place is
 // the same discipline the farm planner uses for its atFetch/atCreate/atPatch/atDelete boundary, and
-// it's what made swapping that app's backend a contained change rather than a rewrite.
+// it is what made replacing Airtable here a one-file change rather than a rewrite.
 //
-// Tables are addressed by NAME, not by table id. That means the base can be created by hand in the
-// Airtable UI and this file works immediately, with no id-discovery step and nothing to paste
-// beyond the base id itself.
+// Why not Airtable any more: the free plan caps API calls at 1,000 per month, and a cookbook that
+// reloads on every visit reaches that on its own. The cap is not a rate limit — it does not clear
+// by waiting — so it was a wall rather than something to pace around.
+//
+// Why the REST API and not the Firebase SDK: this app has no build step and no bundler, and the
+// service worker only caches same-origin files. Pulling the SDK from a CDN would put a
+// third-party script on the critical path and break offline loading. The REST API is plain fetch,
+// which is what the rest of this file was already doing.
 (function (root, factory) {
   if (typeof module === "object" && module.exports) {
     module.exports = factory(root.CookbookUnits);
@@ -22,88 +27,121 @@
 })(typeof self !== "undefined" ? self : this, function (Units) {
   "use strict";
 
-  const API = "https://api.airtable.com/v0";
+  const FS = "https://firestore.googleapis.com/v1";
+  const IDENTITY = "https://identitytoolkit.googleapis.com/v1";
+  const SECURETOKEN = "https://securetoken.googleapis.com/v1";
 
   // ---------------------------------------------------------------------------
   // Schema
   // ---------------------------------------------------------------------------
-  // Field names are the exact strings in Airtable. Rename a field there and you change it here —
-  // one edit, one place. They read as human labels rather than snake_case ids so the base stays
-  // legible when you open it directly in Airtable.
+  // Collection names, and the field names inside a document. Unlike the Airtable version these are
+  // camelCase rather than human labels: nobody browses raw Firestore documents the way you'd browse
+  // an Airtable grid, so matching the app-side object shape is worth more than being pretty in a
+  // console. The names are identical to the app-side keys, which is what keeps the translation
+  // functions below almost trivial.
   const T = {
-    recipes: "Recipes",
-    collections: "Collections",
-    mealPlans: "Meal Plans",
-    shoppingLists: "Shopping Lists",
+    recipes: "recipes",
+    collections: "collections",
+    mealPlans: "mealPlans",
+    shoppingLists: "shoppingLists",
   };
 
   const F = {
-    // Recipes
-    name: "Name",
-    description: "Description",
-    photo: "Photo",
-    sourceUrl: "Source URL",
-    sourceType: "Source Type",
-    servings: "Servings",
-    servingUnit: "Serving Unit",
-    prepMinutes: "Prep Minutes",
-    cookMinutes: "Cook Minutes",
-    collections: "Collections",
-    favourite: "Favourite",
-    tags: "Tags",
-    ingredientsJson: "Ingredients JSON",
-    stepsJson: "Steps JSON",
-    notes: "Notes",
-    // Collections
-    colName: "Name",
-    colEmoji: "Emoji",
-    colOrder: "Order",
-    colDescription: "Description",
-    // Meal Plans
-    weekStarting: "Week Starting",
-    planJson: "Plan JSON",
-    planNotes: "Notes",
-    // Shopping Lists
-    listName: "Name",
-    listWeek: "Week Starting",
-    itemsJson: "Items JSON",
-    listDone: "Done",
+    name: "name",
+    description: "description",
+    photoUrl: "photoUrl",
+    sourceUrl: "sourceUrl",
+    sourceType: "sourceType",
+    servings: "servings",
+    servingUnit: "servingUnit",
+    prepMinutes: "prepMinutes",
+    cookMinutes: "cookMinutes",
+    collectionIds: "collectionIds",
+    favourite: "favourite",
+    tried: "tried",
+    tags: "tags",
+    ingredients: "ingredients",
+    steps: "steps",
+    notes: "notes",
+    colName: "name",
+    colEmoji: "emoji",
+    colOrder: "order",
+    colDescription: "description",
+    weekStarting: "weekStarting",
+    plan: "plan",
+    planNotes: "notes",
+    listName: "name",
+    listWeek: "weekStarting",
+    items: "items",
+    listDone: "done",
   };
 
   // ---------------------------------------------------------------------------
   // Credentials
   // ---------------------------------------------------------------------------
-  // Same trust model as the farm planner's Airtable PAT: stored in this browser only, never
-  // proxied through a server we control, never sent anywhere but api.airtable.com and
-  // api.anthropic.com. The user pastes them once into the settings dialog.
+  // Better than the Airtable arrangement it replaces. A Firebase project id and web API key are
+  // public by design — they identify the project, they do not grant anything — so the value sitting
+  // in localStorage is no longer a secret that would hand someone the whole cookbook. What grants
+  // access is being signed in, and a security rule on the server restricts every document to the
+  // one account that owns it. The password itself is never stored: sign-in exchanges it once for a
+  // refresh token, and that is what persists.
   const K = {
-    pat: "cookbook_airtable_pat",
-    base: "cookbook_airtable_base",
+    project: "cookbook_fb_project",
+    apiKey: "cookbook_fb_api_key",
+    refresh: "cookbook_fb_refresh",
+    email: "cookbook_fb_email",
+    uid: "cookbook_fb_uid",
     anthropic: "cookbook_anthropic_key",
     system: "cookbook_unit_system",
     ui: "cookbook_ui",
   };
 
-  let PAT = localStorage.getItem(K.pat) || "";
-  let BASE = localStorage.getItem(K.base) || "";
+  // This project's own config, checked in deliberately. Both values are public identifiers — the
+  // API key names the project and grants nothing, which is why Firebase ships it in page source on
+  // every web app it hosts. Access comes from signing in, and firestore.rules restricts every
+  // document to one uid. Hardcoding them means a new device only has to sign in, rather than typing
+  // a 39-character key on a phone keyboard. Settings still overrides them if you ever repoint the
+  // app at a different project.
+  const DEFAULTS = {
+    project: "roseberry-cookbook",
+    apiKey: "AIzaSyAwhWYz_8n648MVRyAX-rRqG0Cam3txXr4",
+  };
+
+  let PROJECT = localStorage.getItem(K.project) || DEFAULTS.project;
+  let APIKEY = localStorage.getItem(K.apiKey) || DEFAULTS.apiKey;
+  let REFRESH = localStorage.getItem(K.refresh) || "";
+  let EMAIL = localStorage.getItem(K.email) || "";
+  let UID = localStorage.getItem(K.uid) || "";
   let AKEY = localStorage.getItem(K.anthropic) || "";
 
-  function creds() { return { pat: PAT, base: BASE, anthropic: AKEY }; }
-  function hasCreds() { return Boolean(PAT && BASE); }
+  // Held in memory only. It expires in an hour and is re-minted from the refresh token on demand,
+  // so writing it to localStorage would add exposure and buy nothing.
+  let idToken = "";
+  let idTokenExpiry = 0;
+
+  function creds() {
+    return { project: PROJECT, apiKey: APIKEY, email: EMAIL, uid: UID, anthropic: AKEY };
+  }
+
+  // "Configured and signed in." The project config alone is not enough to read anything, so the
+  // setup banner keys off the refresh token being present too.
+  function hasCreds() { return Boolean(PROJECT && APIKEY && REFRESH); }
+  function isConfigured() { return Boolean(PROJECT && APIKEY); }
+  function isSignedIn() { return Boolean(REFRESH); }
   function hasAiKey() { return Boolean(AKEY); }
 
-  function setCreds({ pat, base, anthropic }) {
-    if (pat !== undefined) { PAT = pat.trim(); localStorage.setItem(K.pat, PAT); }
-    if (base !== undefined) { BASE = normaliseBaseId(base); localStorage.setItem(K.base, BASE); }
+  function setCreds({ project, apiKey, anthropic }) {
+    if (project !== undefined) { PROJECT = normaliseProjectId(project); localStorage.setItem(K.project, PROJECT); }
+    if (apiKey !== undefined) { APIKEY = apiKey.trim(); localStorage.setItem(K.apiKey, APIKEY); }
     if (anthropic !== undefined) { AKEY = anthropic.trim(); localStorage.setItem(K.anthropic, AKEY); }
   }
 
-  // Accepts whatever the user pastes — a bare id, or a full Airtable URL copied from the address
-  // bar (https://airtable.com/appXXXX/tblYYYY/viwZZZZ) — and keeps only the base id.
-  function normaliseBaseId(v) {
+  // Accepts what the user is most likely to paste — a bare project id, or a console URL
+  // (https://console.firebase.google.com/project/my-cookbook/overview) — and keeps the id.
+  function normaliseProjectId(v) {
     const s = String(v || "").trim();
-    const m = s.match(/app[A-Za-z0-9]{14}/);
-    return m ? m[0] : s;
+    const m = s.match(/\/project\/([a-z0-9-]+)/i);
+    return m ? m[1] : s.replace(/^https?:\/\/[^/]+\/?/, "").replace(/\/.*$/, "");
   }
 
   function getUnitSystem() { return localStorage.getItem(K.system) || "metric"; }
@@ -114,138 +152,268 @@
   if (Units) Units.setSystem(getUnitSystem());
 
   // ---------------------------------------------------------------------------
+  // Auth
+  // ---------------------------------------------------------------------------
+  async function signIn(email, password) {
+    if (!isConfigured()) throw new Error("Set the Firebase project id and web API key first, under settings ⚙.");
+    const r = await fetch(`${IDENTITY}/accounts:signInWithPassword?key=${encodeURIComponent(APIKEY)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: String(email || "").trim(), password: password || "", returnSecureToken: true }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(authMessage(j));
+
+    REFRESH = j.refreshToken || "";
+    EMAIL = j.email || email;
+    UID = j.localId || "";
+    idToken = j.idToken || "";
+    idTokenExpiry = Date.now() + (Number(j.expiresIn || 3600) - 60) * 1000;
+    localStorage.setItem(K.refresh, REFRESH);
+    localStorage.setItem(K.email, EMAIL);
+    localStorage.setItem(K.uid, UID);
+    return { email: EMAIL, uid: UID };
+  }
+
+  function signOut() {
+    REFRESH = ""; EMAIL = ""; UID = ""; idToken = ""; idTokenExpiry = 0;
+    localStorage.removeItem(K.refresh);
+    localStorage.removeItem(K.email);
+    localStorage.removeItem(K.uid);
+  }
+
+  // Firebase reports auth failures as terse SCREAMING_SNAKE codes. Translating them here means the
+  // settings dialog can say what actually went wrong instead of showing the user "INVALID_LOGIN".
+  function authMessage(body) {
+    const code = ((body && body.error && body.error.message) || "").split(" ")[0];
+    switch (code) {
+      case "EMAIL_NOT_FOUND":
+      case "INVALID_PASSWORD":
+      case "INVALID_LOGIN_CREDENTIALS":
+        return "That email and password didn't match an account in this Firebase project.";
+      case "USER_DISABLED":
+        return "That account has been disabled in the Firebase console.";
+      case "TOO_MANY_ATTEMPTS_TRY_LATER":
+        return "Too many sign-in attempts. Wait a few minutes and try again.";
+      case "INVALID_EMAIL":
+        return "That doesn't look like a valid email address.";
+      case "API_KEY_INVALID":
+      case "INVALID_API_KEY":
+        return "That web API key isn't valid for this project. Copy it again from Project settings → General.";
+      case "OPERATION_NOT_ALLOWED":
+        return "Email/password sign-in isn't switched on yet. Enable it in the Firebase console under Authentication → Sign-in method.";
+      case "TOKEN_EXPIRED":
+      case "INVALID_REFRESH_TOKEN":
+        return "Your session expired. Sign in again under settings ⚙.";
+      default:
+        return `Firebase refused the sign-in${code ? ` (${code})` : ""}.`;
+    }
+  }
+
+  // Returns a valid ID token, minting a fresh one from the refresh token when the current one is
+  // within a minute of expiry. Every Firestore call goes through this.
+  async function token() {
+    if (!REFRESH) throw new Error("Not signed in. Open settings ⚙ and sign in to your cookbook.");
+    if (idToken && Date.now() < idTokenExpiry) return idToken;
+
+    const r = await fetch(`${SECURETOKEN}/token?key=${encodeURIComponent(APIKEY)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: `grant_type=refresh_token&refresh_token=${encodeURIComponent(REFRESH)}`,
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      // A refresh token only fails permanently — the password changed, or the account is gone.
+      // Clearing it sends the user to the sign-in form instead of retrying forever.
+      signOut();
+      throw new Error(authMessage(j));
+    }
+    idToken = j.id_token || "";
+    idTokenExpiry = Date.now() + (Number(j.expires_in || 3600) - 60) * 1000;
+    if (j.refresh_token && j.refresh_token !== REFRESH) {
+      REFRESH = j.refresh_token;
+      localStorage.setItem(K.refresh, REFRESH);
+    }
+    return idToken;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Firestore value encoding
+  // ---------------------------------------------------------------------------
+  // Firestore's REST API types every value explicitly — {"stringValue": "x"} rather than "x". These
+  // two functions are the whole translation, and being generic is what lets ingredients and steps
+  // be stored as real nested arrays of objects. Under Airtable they had to be JSON strings crammed
+  // into a long-text field to stay inside the 1,000-record ceiling; that compromise is gone.
+  function encode(v) {
+    if (v === null || v === undefined) return { nullValue: null };
+    if (typeof v === "boolean") return { booleanValue: v };
+    if (typeof v === "number") {
+      if (!Number.isFinite(v)) return { nullValue: null };
+      return Number.isInteger(v) ? { integerValue: String(v) } : { doubleValue: v };
+    }
+    if (Array.isArray(v)) return { arrayValue: { values: v.map(encode) } };
+    if (typeof v === "object") return { mapValue: { fields: encodeFields(v) } };
+    return { stringValue: String(v) };
+  }
+
+  function encodeFields(obj) {
+    const out = {};
+    for (const [k, v] of Object.entries(obj || {})) out[k] = encode(v);
+    return out;
+  }
+
+  function decode(v) {
+    if (!v || typeof v !== "object") return null;
+    if ("nullValue" in v) return null;
+    if ("booleanValue" in v) return Boolean(v.booleanValue);
+    if ("integerValue" in v) return Number(v.integerValue);
+    if ("doubleValue" in v) return Number(v.doubleValue);
+    if ("stringValue" in v) return v.stringValue;
+    if ("timestampValue" in v) return v.timestampValue;
+    if ("arrayValue" in v) return (v.arrayValue.values || []).map(decode);
+    if ("mapValue" in v) return decodeFields(v.mapValue.fields);
+    return null;
+  }
+
+  function decodeFields(fields) {
+    const out = {};
+    for (const [k, v] of Object.entries(fields || {})) out[k] = decode(v);
+    return out;
+  }
+
+  // A document's REST name is a full path; the id is its last segment.
+  function docId(doc) {
+    return String(doc && doc.name || "").split("/").pop();
+  }
+
+  // ---------------------------------------------------------------------------
   // REST plumbing
   // ---------------------------------------------------------------------------
-  // Airtable allows 5 requests/second per base and answers a burst with a 429 plus a 30-second
-  // penalty — far more disruptive than simply pacing ourselves. Every call funnels through this
-  // queue so a bulk save can't trip it.
-  const MIN_GAP_MS = 220;   // ~4.5 req/s, comfortably under the limit
-  let chain = Promise.resolve();
-  function throttle(fn) {
-    const run = chain.then(fn);
-    chain = run.then(() => sleep(MIN_GAP_MS), () => sleep(MIN_GAP_MS));
-    return run;
-  }
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-  function headers() {
-    return { Authorization: `Bearer ${PAT}`, "Content-Type": "application/json" };
-  }
-
-  function url(table, qs) {
-    const u = new URL(`${API}/${BASE}/${encodeURIComponent(table)}`);
-    if (qs) for (const [k, v] of Object.entries(qs)) u.searchParams.set(k, v);
+  // No throttle queue any more. That existed because Airtable answered a burst of more than five
+  // requests per second with a 429 and a thirty-second penalty. Firestore's per-project write
+  // ceiling is orders of magnitude above anything a single cookbook does, so pacing would only slow
+  // a bulk import down for no reason.
+  function docsUrl(path, qs) {
+    const u = new URL(`${FS}/projects/${PROJECT}/databases/(default)/documents${path}`);
+    if (qs) for (const [k, v] of Object.entries(qs)) {
+      if (Array.isArray(v)) v.forEach((one) => u.searchParams.append(k, one));
+      else u.searchParams.set(k, v);
+    }
     return u.toString();
   }
 
-  async function request(href, opts) {
-    if (!hasCreds()) throw new Error("No Airtable credentials. Open settings ⚙ and paste your token and base id.");
-    const r = await throttle(() => fetch(href, opts));
+  async function request(href, opts, retrying) {
+    if (!isConfigured()) throw new Error("No Firebase project configured. Open settings ⚙ and paste your project id and web API key.");
+    const t = await token();
+    const r = await fetch(href, Object.assign({}, opts, {
+      headers: Object.assign({ Authorization: `Bearer ${t}`, "Content-Type": "application/json" }, (opts || {}).headers),
+    }));
+
     if (!r.ok) {
       const body = await r.text().catch(() => "");
-      if (r.status === 401) throw new Error("Airtable rejected the token (401). Check it under settings ⚙.");
-      if (r.status === 403) throw new Error("Airtable denied access (403). The token may lack access to this base, or need the data.records scopes.");
-      if (r.status === 404) throw new Error("Airtable returned 404 — check the base id, and that the table names match the schema exactly.");
-      if (r.status === 422) throw new Error(`Airtable rejected the data (422). Usually a field name mismatch. ${body.slice(0, 200)}`);
-      if (r.status === 429) throw new Error("Airtable rate limit hit (429). Wait 30 seconds and try again.");
-      throw new Error(`Airtable returned ${r.status}. ${body.slice(0, 200)}`);
+      // One retry on 401: the usual cause is a token that expired between the check above and the
+      // request landing. Forcing a re-mint fixes it; a second 401 is a real auth problem.
+      if (r.status === 401 && !retrying) {
+        idToken = ""; idTokenExpiry = 0;
+        return request(href, opts, true);
+      }
+      if (r.status === 401) throw new Error("Firebase rejected the session. Sign in again under settings ⚙.");
+      if (r.status === 403) throw new Error("Firestore denied access (403). Check your security rules allow this account, and that the Firestore database has been created.");
+      if (r.status === 404) throw new Error(`Firestore returned 404 — check the project id is right and the database exists. ${body.slice(0, 160)}`);
+      if (r.status === 429) throw new Error("Firestore quota exceeded (429). This should be rare on the free tier — check the Firebase console usage page.");
+      throw new Error(`Firestore returned ${r.status}. ${body.slice(0, 200)}`);
     }
     return r.status === 204 ? null : r.json();
   }
 
-  // Fetches every record in a table, following Airtable's offset pagination.
-  async function fetchAll(table, qs) {
-    let records = [], offset;
+  // Reads every document in a collection, following Firestore's page tokens. An empty collection
+  // comes back as {} with no documents key at all, which is why the fallback matters.
+  async function fetchAll(collection) {
+    let docs = [], pageToken;
     do {
-      const params = Object.assign({ pageSize: "100" }, qs || {});
-      if (offset) params.offset = offset;
-      const j = await request(url(table, params), { headers: headers() });
-      records = records.concat(j.records || []);
-      offset = j.offset;
-    } while (offset);
-    return records;
+      const qs = { pageSize: "300" };
+      if (pageToken) qs.pageToken = pageToken;
+      const j = await request(docsUrl(`/${collection}`, qs), { method: "GET" });
+      docs = docs.concat(j.documents || []);
+      pageToken = j.nextPageToken;
+    } while (pageToken);
+    return docs;
   }
 
-  // Airtable caps writes at 10 records per request, so these chunk automatically.
-  async function createRecords(table, fieldsList) {
-    const out = [];
-    for (const chunk of chunks(fieldsList, 10)) {
-      const j = await request(url(table), {
-        method: "POST",
-        headers: headers(),
-        body: JSON.stringify({ records: chunk.map((fields) => ({ fields })), typecast: true }),
-      });
-      out.push(...(j.records || []));
-    }
-    return out;
-  }
-
-  async function updateRecords(table, updates) {
-    const out = [];
-    for (const chunk of chunks(updates, 10)) {
-      const j = await request(url(table), {
-        method: "PATCH",
-        headers: headers(),
-        body: JSON.stringify({ records: chunk, typecast: true }),
-      });
-      out.push(...(j.records || []));
-    }
-    return out;
-  }
-
-  async function deleteRecords(table, ids) {
-    for (const chunk of chunks(ids, 10)) {
-      const u = new URL(`${API}/${BASE}/${encodeURIComponent(table)}`);
-      for (const id of chunk) u.searchParams.append("records[]", id);
-      await request(u.toString(), { method: "DELETE", headers: headers() });
+  async function getDoc(collection, id) {
+    try {
+      return await request(docsUrl(`/${collection}/${encodeURIComponent(id)}`), { method: "GET" });
+    } catch (e) {
+      if (/404/.test(e.message)) return null;
+      throw e;
     }
   }
 
-  function chunks(arr, n) {
-    const out = [];
-    for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
-    return out;
+  async function createDoc(collection, data, id) {
+    return request(docsUrl(`/${collection}`, id ? { documentId: id } : null), {
+      method: "POST",
+      body: JSON.stringify({ fields: encodeFields(data) }),
+    });
+  }
+
+  // Firestore's PATCH replaces the whole document unless an update mask names the fields to touch.
+  // Passing the mask is what lets setFavourite flip one flag without rewriting the recipe — and
+  // without clobbering an edit made in another tab. With no id supplied it upserts, which is how
+  // meal plans are saved.
+  async function patchDoc(collection, id, data, fieldPaths) {
+    const qs = {};
+    if (fieldPaths && fieldPaths.length) qs["updateMask.fieldPaths"] = fieldPaths;
+    return request(docsUrl(`/${collection}/${encodeURIComponent(id)}`, qs), {
+      method: "PATCH",
+      body: JSON.stringify({ fields: encodeFields(data) }),
+    });
+  }
+
+  async function deleteDoc(collection, id) {
+    await request(docsUrl(`/${collection}/${encodeURIComponent(id)}`), { method: "DELETE" });
   }
 
   // ---------------------------------------------------------------------------
   // Recipe translation
   // ---------------------------------------------------------------------------
-  // Ingredients and steps live as JSON in long-text fields. That's the deliberate trade that keeps
-  // one recipe to one Airtable record: normalised into their own tables, a single recipe would
-  // cost ~20 records and the free tier's 1,000-record ceiling would cap the cookbook at about 45
-  // recipes. Denormalised, 1,000 recipes fit. The cost is that you can't edit an individual
-  // ingredient in Airtable's grid — the app is the editing surface.
   function safeParseJson(text, fallback) {
     if (!text) return fallback;
+    if (typeof text === "object") return text;
     try {
       const v = JSON.parse(text);
       return Array.isArray(v) || (v && typeof v === "object") ? v : fallback;
     } catch {
-      // A hand-edited field that's no longer valid JSON must not take the whole recipe list down.
+      // A document hand-edited in the Firestore console and left as broken JSON must not take the
+      // whole recipe list down.
       return fallback;
     }
   }
 
-  function parseRecipe(rec) {
-    const f = rec.fields || {};
-    const photo = Array.isArray(f[F.photo]) && f[F.photo].length ? f[F.photo][0] : null;
+  function parseRecipe(doc) {
+    const f = decodeFields(doc.fields);
+    const photo = f[F.photoUrl] || "";
     return {
-      id: rec.id,
+      id: docId(doc),
       name: f[F.name] || "Untitled",
       description: f[F.description] || "",
-      photoUrl: photo ? photo.url : "",
-      photoThumb: photo && photo.thumbnails ? (photo.thumbnails.large || photo.thumbnails.small || {}).url || photo.url : (photo ? photo.url : ""),
+      photoUrl: photo,
+      // Airtable generated thumbnails; Firestore stores the URL we were given and nothing else.
+      // Keeping the key means every call site above this layer is unchanged.
+      photoThumb: photo,
       sourceUrl: f[F.sourceUrl] || "",
       sourceType: f[F.sourceType] || "Manual",
       servings: Number(f[F.servings]) || 1,
       servingUnit: f[F.servingUnit] || "servings",
       prepMinutes: f[F.prepMinutes] != null ? Number(f[F.prepMinutes]) : null,
       cookMinutes: f[F.cookMinutes] != null ? Number(f[F.cookMinutes]) : null,
-      collectionIds: f[F.collections] || [],
+      collectionIds: f[F.collectionIds] || [],
       favourite: Boolean(f[F.favourite]),
+      tried: Boolean(f[F.tried]),
       tags: f[F.tags] || [],
-      ingredients: normaliseIngredients(safeParseJson(f[F.ingredientsJson], [])),
-      steps: normaliseSteps(safeParseJson(f[F.stepsJson], [])),
+      // safeParseJson tolerates the Airtable-era shape, where these were JSON strings. A document
+      // migrated across still reads correctly, and is rewritten as an array on its next save.
+      ingredients: normaliseIngredients(safeParseJson(f[F.ingredients], [])),
+      steps: normaliseSteps(safeParseJson(f[F.steps], [])),
       notes: f[F.notes] || "",
     };
   }
@@ -282,47 +450,51 @@
     });
   }
 
-  // Back to Airtable field shape. Only writes fields we own — anything you add by hand in Airtable
-  // is left untouched.
+  // Back to document shape — a plain object, encoded to Firestore's typed values at the boundary.
+  // Photo is deliberately absent: it is written by setPhotoFromUrl so that a dead image URL can
+  // never cost the recipe it belongs to.
   function recipeToFields(r) {
-    const fields = {};
-    fields[F.name] = r.name || "Untitled";
-    fields[F.description] = r.description || "";
-    fields[F.sourceUrl] = r.sourceUrl || "";
-    fields[F.sourceType] = r.sourceType || "Manual";
-    fields[F.servings] = Number(r.servings) || 1;
-    fields[F.servingUnit] = r.servingUnit || "servings";
-    fields[F.prepMinutes] = r.prepMinutes != null && r.prepMinutes !== "" ? Number(r.prepMinutes) : null;
-    fields[F.cookMinutes] = r.cookMinutes != null && r.cookMinutes !== "" ? Number(r.cookMinutes) : null;
-    fields[F.collections] = r.collectionIds || [];
-    fields[F.favourite] = Boolean(r.favourite);
-    fields[F.tags] = r.tags || [];
-    fields[F.ingredientsJson] = JSON.stringify(r.ingredients || [], null, 0);
-    fields[F.stepsJson] = JSON.stringify(r.steps || [], null, 0);
-    fields[F.notes] = r.notes || "";
-    // An attachment field is only writable by URL. Setting it from a photo the user just took
-    // needs an upload host we don't have, so photo writes are handled separately (see setPhoto).
-    return fields;
+    return {
+      [F.name]: r.name || "Untitled",
+      [F.description]: r.description || "",
+      [F.sourceUrl]: r.sourceUrl || "",
+      [F.sourceType]: r.sourceType || "Manual",
+      [F.servings]: Number(r.servings) || 1,
+      [F.servingUnit]: r.servingUnit || "servings",
+      [F.prepMinutes]: r.prepMinutes != null && r.prepMinutes !== "" ? Number(r.prepMinutes) : null,
+      [F.cookMinutes]: r.cookMinutes != null && r.cookMinutes !== "" ? Number(r.cookMinutes) : null,
+      [F.collectionIds]: r.collectionIds || [],
+      [F.favourite]: Boolean(r.favourite),
+      [F.tried]: Boolean(r.tried),
+      [F.tags]: r.tags || [],
+      [F.ingredients]: normaliseIngredients(r.ingredients || []),
+      [F.steps]: normaliseSteps(r.steps || []),
+      [F.notes]: r.notes || "",
+    };
   }
+
+  // Every field this layer owns. Passing it as the update mask means anything you added by hand in
+  // the Firestore console survives a save from the app.
+  const RECIPE_FIELDS = Object.keys(recipeToFields({}));
 
   // ---------------------------------------------------------------------------
   // Public data operations
   // ---------------------------------------------------------------------------
   async function loadAll() {
-    const [recipeRecs, collectionRecs] = await Promise.all([
+    const [recipeDocs, collectionDocs] = await Promise.all([
       fetchAll(T.recipes),
-      fetchAll(T.collections).catch(() => []),   // a cookbook with no collections table still works
+      fetchAll(T.collections).catch(() => []),   // a cookbook with no collections yet still works
     ]);
     return {
-      recipes: recipeRecs.map(parseRecipe),
-      collections: collectionRecs.map(parseCollection).sort((a, b) => (a.order || 0) - (b.order || 0)),
+      recipes: recipeDocs.map(parseRecipe),
+      collections: collectionDocs.map(parseCollection).sort((a, b) => (a.order || 0) - (b.order || 0)),
     };
   }
 
-  function parseCollection(rec) {
-    const f = rec.fields || {};
+  function parseCollection(doc) {
+    const f = decodeFields(doc.fields);
     return {
-      id: rec.id,
+      id: docId(doc),
       name: f[F.colName] || "Untitled",
       emoji: f[F.colEmoji] || "",
       order: Number(f[F.colOrder]) || 0,
@@ -331,127 +503,126 @@
   }
 
   async function createRecipe(recipe) {
-    const [rec] = await createRecords(T.recipes, [recipeToFields(recipe)]);
-    return parseRecipe(rec);
+    const doc = await createDoc(T.recipes, recipeToFields(recipe));
+    return parseRecipe(doc);
   }
 
   async function updateRecipe(recipe) {
-    const [rec] = await updateRecords(T.recipes, [{ id: recipe.id, fields: recipeToFields(recipe) }]);
-    return parseRecipe(rec);
+    const doc = await patchDoc(T.recipes, recipe.id, recipeToFields(recipe), RECIPE_FIELDS);
+    return parseRecipe(doc);
   }
 
-  async function deleteRecipe(id) { await deleteRecords(T.recipes, [id]); }
+  async function deleteRecipe(id) { await deleteDoc(T.recipes, id); }
 
   // Favourite toggling is its own call so the list view can flip a star without serialising and
   // rewriting the whole recipe (and without risking clobbering a concurrent edit elsewhere).
   async function setFavourite(id, on) {
-    const [rec] = await updateRecords(T.recipes, [{ id, fields: { [F.favourite]: Boolean(on) } }]);
-    return parseRecipe(rec);
+    const doc = await patchDoc(T.recipes, id, { [F.favourite]: Boolean(on) }, [F.favourite]);
+    return parseRecipe(doc);
   }
 
-  // Attachment fields accept a publicly reachable URL; Airtable then fetches and stores a copy.
-  // A photo taken on the phone has no URL, so clipping keeps the image locally and this is used
-  // only when a recipe was clipped from a page that already hosts its image.
+  // Same rationale as setFavourite — flipping "tried" from the grid shouldn't rewrite the whole
+  // recipe. This is what moves a recipe between the "To Try" and "Cookbook" sections.
+  async function setTried(id, on) {
+    const doc = await patchDoc(T.recipes, id, { [F.tried]: Boolean(on) }, [F.tried]);
+    return parseRecipe(doc);
+  }
+
+  // Airtable fetched an attachment URL and stored its own copy; Firestore stores the URL as given,
+  // so the image stays hotlinked from wherever it was clipped. Cheaper and simpler, at the cost of
+  // a photo that can disappear if the source site takes it down.
   async function setPhotoFromUrl(id, imageUrl) {
-    const [rec] = await updateRecords(T.recipes, [{ id, fields: { [F.photo]: imageUrl ? [{ url: imageUrl }] : [] } }]);
-    return parseRecipe(rec);
+    const doc = await patchDoc(T.recipes, id, { [F.photoUrl]: imageUrl || "" }, [F.photoUrl]);
+    return parseRecipe(doc);
   }
 
   async function createCollection(name, emoji, order) {
-    const [rec] = await createRecords(T.collections, [{
+    const doc = await createDoc(T.collections, {
       [F.colName]: name, [F.colEmoji]: emoji || "", [F.colOrder]: order || 0,
-    }]);
-    return parseCollection(rec);
+    });
+    return parseCollection(doc);
   }
 
   // --- meal plans -------------------------------------------------------------
-  // One record per week, keyed by the Monday. Per-meal records would cost ~1,100 records a year
-  // and blow the free-tier ceiling on their own; per-week costs 52.
+  // One document per week, and the week's Monday is the document id. That turns loading a week
+  // into a single get by key — no query, no index, and no filter formula of the kind the Airtable
+  // version needed.
   async function loadWeek(weekStartIso) {
-    const recs = await fetchAll(T.mealPlans, {
-      filterByFormula: `DATESTR({${F.weekStarting}}) = '${weekStartIso}'`,
-    });
-    if (!recs.length) return { id: null, weekStarting: weekStartIso, plan: {}, notes: "" };
-    const f = recs[0].fields || {};
+    const doc = await getDoc(T.mealPlans, weekStartIso);
+    if (!doc) return { id: null, weekStarting: weekStartIso, plan: {}, notes: "" };
+    const f = decodeFields(doc.fields);
     return {
-      id: recs[0].id,
+      id: docId(doc),
       weekStarting: f[F.weekStarting] || weekStartIso,
-      plan: safeParseJson(f[F.planJson], {}),
+      plan: safeParseJson(f[F.plan], {}) || {},
       notes: f[F.planNotes] || "",
     };
   }
 
   async function saveWeek(week) {
-    const fields = {
-      [F.weekStarting]: week.weekStarting,
-      [F.planJson]: JSON.stringify(week.plan || {}),
+    const id = week.weekStarting;
+    const data = {
+      [F.weekStarting]: id,
+      [F.plan]: week.plan || {},
       [F.planNotes]: week.notes || "",
     };
-    if (week.id) {
-      const [rec] = await updateRecords(T.mealPlans, [{ id: week.id, fields }]);
-      return Object.assign({}, week, { id: rec.id });
-    }
-    const [rec] = await createRecords(T.mealPlans, [fields]);
-    return Object.assign({}, week, { id: rec.id });
+    // PATCH upserts, so a week that has never been planned needs no separate create.
+    const doc = await patchDoc(T.mealPlans, id, data, Object.keys(data));
+    return Object.assign({}, week, { id: docId(doc) });
   }
 
   // --- shopping lists ---------------------------------------------------------
   async function loadShoppingLists() {
-    const recs = await fetchAll(T.shoppingLists);
-    return recs.map((rec) => {
-      const f = rec.fields || {};
+    const docs = await fetchAll(T.shoppingLists);
+    return docs.map((doc) => {
+      const f = decodeFields(doc.fields);
       return {
-        id: rec.id,
+        id: docId(doc),
         name: f[F.listName] || "Shopping list",
         weekStarting: f[F.listWeek] || "",
-        items: safeParseJson(f[F.itemsJson], []),
+        items: safeParseJson(f[F.items], []) || [],
         done: Boolean(f[F.listDone]),
       };
     });
   }
 
   async function saveShoppingList(list) {
-    const fields = {
+    const data = {
       [F.listName]: list.name || "Shopping list",
-      [F.listWeek]: list.weekStarting || null,
-      [F.itemsJson]: JSON.stringify(list.items || []),
+      [F.listWeek]: list.weekStarting || "",
+      [F.items]: list.items || [],
       [F.listDone]: Boolean(list.done),
     };
-    if (list.id) {
-      const [rec] = await updateRecords(T.shoppingLists, [{ id: list.id, fields }]);
-      return Object.assign({}, list, { id: rec.id });
-    }
-    const [rec] = await createRecords(T.shoppingLists, [fields]);
-    return Object.assign({}, list, { id: rec.id });
+    const doc = list.id
+      ? await patchDoc(T.shoppingLists, list.id, data, Object.keys(data))
+      : await createDoc(T.shoppingLists, data);
+    return Object.assign({}, list, { id: docId(doc) });
   }
 
-  async function deleteShoppingList(id) { await deleteRecords(T.shoppingLists, [id]); }
+  async function deleteShoppingList(id) { await deleteDoc(T.shoppingLists, id); }
 
-  // Confirms the base is reachable and the table names match, so settings can tell the user what's
-  // wrong immediately instead of failing later on a real operation.
+  // Confirms the project is reachable and the session works, so settings can tell the user what's
+  // wrong immediately instead of failing later on a real operation. Unlike Airtable there are no
+  // collections to create in advance — Firestore makes one the first time you write a document —
+  // so this only has to prove that reading is permitted.
   async function testConnection() {
-    const missing = [];
-    for (const table of [T.recipes, T.collections, T.mealPlans, T.shoppingLists]) {
-      try {
-        await request(url(table, { pageSize: "1" }), { headers: headers() });
-      } catch (e) {
-        if (/404/.test(e.message)) missing.push(table);
-        else throw e;
-      }
-    }
-    if (missing.length) throw new Error(`Connected, but these tables are missing or misnamed: ${missing.join(", ")}`);
+    if (!isConfigured()) throw new Error("Paste the project id and web API key first.");
+    if (!isSignedIn()) throw new Error("Configured, but not signed in yet — sign in below.");
+    await request(docsUrl(`/${T.recipes}`, { pageSize: "1" }), { method: "GET" });
     return true;
   }
 
   return {
     T, F, K,
-    creds, hasCreds, hasAiKey, setCreds, normaliseBaseId,
+    creds, hasCreds, isConfigured, isSignedIn, hasAiKey, setCreds, normaliseProjectId,
+    signIn, signOut,
     getUnitSystem, setUnitSystem,
     loadAll, testConnection,
-    createRecipe, updateRecipe, deleteRecipe, setFavourite, setPhotoFromUrl,
+    createRecipe, updateRecipe, deleteRecipe, setFavourite, setTried, setPhotoFromUrl,
     createCollection,
     loadWeek, saveWeek,
     loadShoppingLists, saveShoppingList, deleteShoppingList,
     parseRecipe, recipeToFields, normaliseIngredients, normaliseSteps, safeParseJson,
+    encode, decode, encodeFields, decodeFields,
   };
 });

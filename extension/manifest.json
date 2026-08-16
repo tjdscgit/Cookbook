@@ -20,5 +20,10 @@
   },
   "options_page": "options.html",
   "permissions": ["activeTab", "scripting", "storage"],
-  "host_permissions": ["https://api.airtable.com/*", "https://api.anthropic.com/*"]
+  "host_permissions": [
+    "https://firestore.googleapis.com/*",
+    "https://identitytoolkit.googleapis.com/*",
+    "https://securetoken.googleapis.com/*",
+    "https://api.anthropic.com/*"
+  ]
 }

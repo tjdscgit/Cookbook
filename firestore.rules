@@ -1,0 +1,30 @@
+// Firestore security rules for the Cookbook.
+//
+// Deployed with `firebase deploy --only firestore:rules`. The uid below is the one account allowed
+// to touch this data — find it under Authentication → Users → the "User UID" column, and change it
+// here if you ever move to a different account.
+//
+// The whole point: the project id and web API key that live in the browser are public identifiers,
+// not secrets. These rules are what actually guards the data — without them, anyone who read the
+// page source could write to the database. With them, an unauthenticated request is refused and so
+// is a signed-in request from any account but yours.
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isOwner() {
+      return request.auth != null && request.auth.uid == 'ZAN9ebqTEldDmsMTfrntWmVCF6R2';
+    }
+
+    // Every collection the app uses, and nothing else. The final catch-all denies anything not
+    // named here, so a future typo in a collection name fails loudly rather than writing into an
+    // unprotected corner of the database.
+    match /recipes/{doc}        { allow read, write: if isOwner(); }
+    match /collections/{doc}    { allow read, write: if isOwner(); }
+    match /mealPlans/{doc}      { allow read, write: if isOwner(); }
+    match /shoppingLists/{doc}  { allow read, write: if isOwner(); }
+
+    match /{document=**} { allow read, write: if false; }
+  }
+}

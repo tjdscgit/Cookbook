@@ -4,23 +4,30 @@ A recipe app for phone and desktop. Recipes scale to any serving size, and the m
 ingredient *and its amount* beside the step that uses it — so you're not scrolling back to the
 ingredient list with wet hands.
 
-Vanilla HTML/CSS/JS. No build step, no `npm install`, no framework. Data lives in Airtable.
+Vanilla HTML/CSS/JS. No build step, no `npm install`, no framework. Data lives in Firestore.
 
 ## Setup
 
-**1. Create the Airtable base.** Make an empty base called `Cookbook`, then create the four tables
-described in [cookbook-schema.md](cookbook-schema.md): `Recipes`, `Collections`, `Meal Plans`,
-`Shopping Lists`. Names must match exactly.
+**1. Create a Firebase project** at [console.firebase.google.com](https://console.firebase.google.com).
+Stay on the free Spark plan — nothing here needs billing.
 
-**2. Create a token** at [airtable.com/create/tokens](https://airtable.com/create/tokens) with the
-`data.records:read`, `data.records:write` and `schema.bases:read` scopes, granted access to the
-Cookbook base.
+**2. Add Firestore and an account.** In the console: **Firestore Database → Create database**
+(production mode, any region), then **Authentication → Sign-in method → Email/Password → Enable**,
+then **Authentication → Users → Add user** with the email and password you'll sign in with. There
+are no collections or fields to create — Firestore makes them on first write.
 
-**3. Open the app** and paste the token and base id into Settings ⚙. "Test connection" tells you
-immediately if a table name is wrong.
+**3. Publish the security rules.** Copy [firestore.rules](firestore.rules) into **Firestore Database
+→ Rules**, replacing `OWNER_UID` with the uid shown against your user under Authentication → Users.
+Without this step the database is either closed to the app or open to the world.
 
-**4. Optional — an Anthropic API key.** Only needed to clip recipes from **photos** and **social
+**4. Open the app** and paste the project id and web API key (Project settings → General) into
+Settings ⚙, then sign in. "Test connection" tells you immediately if something's wrong.
+
+**5. Optional — an Anthropic API key.** Only needed to clip recipes from **photos** and **social
 posts**. Website clipping and manual entry work without it. Roughly 5–6¢ per photo.
+
+The project id and API key are not secrets — they identify the project and grant nothing. Access
+comes from being signed in, and the rules restrict every document to your account.
 
 ## Running it
 
@@ -56,7 +63,8 @@ Writes real PNGs with no dependencies. Edit the two hex constants at the top to 
 | `index.html` | App shell and all markup |
 | `cookbook.css` | Theming (light + dark) and layout |
 | `cookbook-units.js` | Ingredient parsing, serving scaling, shopping-list aggregation |
-| `cookbook-data.js` | The only file that knows Airtable exists |
+| `cookbook-data.js` | The only file that knows Firestore exists |
+| `firestore.rules` | Security rules — paste into the Firebase console |
 | `cookbook-clip.js` | Clipping from websites, photos and pasted text |
 | `cookbook-plan.js` | Weekly planner and shopping-list rendering |
 | `cookbook-ui.js` | State, navigation and every view |

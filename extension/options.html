@@ -19,19 +19,26 @@
   <h1><span class="mark"></span> Cookbook Clipper — Options</h1>
 
   <label>
-    <span class="lbl">Airtable personal access token</span>
-    <input type="password" id="pat" placeholder="pat…" autocomplete="off" spellcheck="false">
-    <span class="hint">
-      Create one at airtable.com/create/tokens with <b>data.records:read</b>, <b>data.records:write</b>
-      and <b>schema.bases:read</b>, granted access to your Cookbook base.
-      Stored in this extension's own storage only — never sent anywhere but Airtable.
-    </span>
+    <span class="lbl">Firebase project id</span>
+    <input type="text" id="project" placeholder="my-cookbook" autocomplete="off" spellcheck="false">
+    <span class="hint">Same project id you use in the main Cookbook app.</span>
   </label>
 
   <label>
-    <span class="lbl">Base id</span>
-    <input type="text" id="base" placeholder="appXXXXXXXXXXXXXX" autocomplete="off" spellcheck="false">
-    <span class="hint">Same base id you use in the main Cookbook app.</span>
+    <span class="lbl">Firebase web API key</span>
+    <input type="text" id="apiKey" placeholder="AIza…" autocomplete="off" spellcheck="false">
+    <span class="hint">Not a secret — it identifies the project and grants nothing by itself. Access comes from signing in below.</span>
+  </label>
+
+  <label>
+    <span class="lbl">Email</span>
+    <input type="email" id="email" placeholder="you@example.com" autocomplete="username" spellcheck="false">
+  </label>
+
+  <label>
+    <span class="lbl">Password</span>
+    <input type="password" id="password" placeholder="Password" autocomplete="current-password">
+    <span class="hint">Never stored — it's exchanged once for a token kept in this extension's own storage.</span>
   </label>
 
   <label>

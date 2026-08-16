@@ -1,2 +1,13 @@
 desktop.ini
 .claude/settings.local.json
+
+# The migration source for the Airtable → Firestore move: 51 recipes exported from another app,
+# including other people's recipe text and creator handles. This repo is public, so it stays local.
+# Kept on disk (and on Drive) as the backup it is — the Import button in Settings reads it directly.
+flavorish-import.json
+
+# Firebase CLI working files. .firebaserc is deliberately NOT ignored — it only names the project,
+# which is a public identifier, and tracking it means a fresh clone deploys to the right place.
+.firebase/
+firebase-debug.log
+firestore-debug.log
