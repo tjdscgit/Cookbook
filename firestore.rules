@@ -24,6 +24,7 @@ service cloud.firestore {
     match /collections/{doc}    { allow read, write: if isOwner(); }
     match /mealPlans/{doc}      { allow read, write: if isOwner(); }
     match /shoppingLists/{doc}  { allow read, write: if isOwner(); }
+    match /settings/{doc}       { allow read, write: if isOwner(); }
 
     match /{document=**} { allow read, write: if false; }
   }

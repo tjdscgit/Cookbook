@@ -132,6 +132,26 @@
     if (anthropic !== undefined) { AKEY = anthropic.trim(); localStorage.setItem(K.anthropic, AKEY); }
   }
 
+  // The Anthropic key, synced through Firestore instead of staying local-only, so signing in on a
+  // new phone or laptop picks it up automatically instead of it having to be retyped there too.
+  // Firebase project id and web API key don't need this treatment — they're hardcoded defaults
+  // already, and access is gated by sign-in, not by knowing them.
+  async function pullAnthropicKey() {
+    if (!isSignedIn()) return;
+    const doc = await getDoc("settings", "shared").catch(() => null);
+    const remote = doc && decodeFields(doc.fields).anthropicKey;
+    if (typeof remote === "string") {
+      AKEY = remote;
+      localStorage.setItem(K.anthropic, AKEY);
+    }
+  }
+
+  async function pushAnthropicKey(key) {
+    setCreds({ anthropic: key });
+    if (!isSignedIn()) return;
+    await patchDoc("settings", "shared", { anthropicKey: AKEY }, ["anthropicKey"]);
+  }
+
   // Accepts what the user is most likely to paste — a bare project id, or a console URL
   // (https://console.firebase.google.com/project/my-cookbook/overview) — and keeps the id.
   function normaliseProjectId(v) {
@@ -611,6 +631,7 @@
   return {
     T, F, K,
     creds, hasCreds, isConfigured, isSignedIn, hasAiKey, setCreds, normaliseProjectId,
+    pullAnthropicKey, pushAnthropicKey,
     signIn, signOut,
     getUnitSystem, setUnitSystem,
     loadAll, testConnection,

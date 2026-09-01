@@ -70,6 +70,7 @@
       setView("recipes");
       return;
     }
+    await Data.pullAnthropicKey().catch(() => {});
     await refresh();
   }
 
@@ -181,8 +182,8 @@
       Data.setCreds({
         project: $("#setProject").value,
         apiKey: $("#setApiKey").value,
-        anthropic: $("#setKey").value,
       });
+      await Data.pushAnthropicKey($("#setKey").value).catch(() => {});
       Data.setUnitSystem($("#setSystem").value);
       $("#dlgSettings").close();
       await refresh();
@@ -209,6 +210,8 @@
       try {
         await Data.signIn($("#setEmail").value, $("#setPassword").value);
         $("#setPassword").value = "";
+        await Data.pullAnthropicKey().catch(() => {});
+        $("#setKey").value = Data.creds().anthropic;
         el.innerHTML = '<span style="color:var(--herb)">✓ Signed in.</span>';
         renderAuth();
         await refresh();
