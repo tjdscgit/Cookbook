@@ -3,12 +3,17 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#B3502E">
+<meta name="theme-color" content="#F6F3EC">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <title>Cookbook</title>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- Display serif + body sans for the Editorial Press look. Cross-origin, so the service worker
+     leaves them alone: offline the app falls back to the local Georgia/system stack in cookbook.css. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Instrument+Sans:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="cookbook.css">
 </head>
 <body>
@@ -18,14 +23,14 @@
   <!-- Desktop navigation. The mobile tab bar at the bottom of this file mirrors it; both drive the
        same data-view buttons so there's one navigation handler, not two. -->
   <nav class="sidenav">
-    <div class="brand"><span class="mark">🍳</span> Cookbook</div>
-    <button class="navbtn" data-view="recipes"><span class="ico">📖</span> Recipes</button>
-    <button class="navbtn" data-view="planner"><span class="ico">🗓️</span> Planner</button>
-    <button class="navbtn" data-view="shopping"><span class="ico">🛒</span> Shopping</button>
-    <button class="navbtn" data-view="collections"><span class="ico">🗂️</span> Collections</button>
+    <div class="brand">Cookbook</div>
+    <button class="navbtn" data-view="recipes"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H19v16H5.5A1.5 1.5 0 0 1 4 18.5z"/><path d="M8 4v16"/></svg></span> Recipes</button>
+    <button class="navbtn" data-view="planner"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15.5" rx="1.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg></span> Planner</button>
+    <button class="navbtn" data-view="shopping"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16l-1.4 12.2a1.5 1.5 0 0 1-1.5 1.3H6.9a1.5 1.5 0 0 1-1.5-1.3z"/><path d="M9 7V5a3 3 0 0 1 6 0v2"/></svg></span> Shopping</button>
+    <button class="navbtn" data-view="collections"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 7.5A1.5 1.5 0 0 1 5 6h4l2 2.5h7A1.5 1.5 0 0 1 19.5 10v7.5A1.5 1.5 0 0 1 18 19H5a1.5 1.5 0 0 1-1.5-1.5z"/></svg></span> Collections</button>
     <div class="navspacer"></div>
-    <button class="navbtn" id="navTheme"><span class="ico">🌗</span> Theme</button>
-    <button class="navbtn" id="navSettings"><span class="ico">⚙️</span> Settings</button>
+    <button class="navbtn util" id="navTheme"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 4v16" /><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor" stroke="none"/></svg></span> Theme</button>
+    <button class="navbtn util" id="navSettings"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M12 3v2.4M12 18.6V21M3 12h2.4M18.6 12H21M5.6 5.6l1.7 1.7M16.7 16.7l1.7 1.7M18.4 5.6l-1.7 1.7M7.3 16.7l-1.7 1.7"/></svg></span> Settings</button>
   </nav>
 
   <main class="main">
@@ -44,25 +49,25 @@
           <div class="sub" id="recipeCount"></div>
         </div>
         <div style="display:flex;gap:9px;flex-wrap:wrap">
-          <button class="btn" id="btnClip">✂️ Clip</button>
-          <button class="btn primary" id="btnNew">＋ New recipe</button>
+          <button class="btn" id="btnClip"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="6.5" cy="6.5" r="2.3"/><circle cx="6.5" cy="17.5" r="2.3"/><path d="M19.5 4.5L9 15M9 9L19.5 19.5"/></svg></span> Clip</button>
+          <button class="btn primary" id="btnNew"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></span> New recipe</button>
         </div>
       </div>
 
       <div class="tabs" id="sectionTabs">
-        <button class="tab" id="tabCookbook" aria-pressed="false">📖 Cookbook</button>
-        <button class="tab" id="tabToTry" aria-pressed="true">🔖 To Try</button>
+        <button class="tab" id="tabCookbook" aria-pressed="false">Cookbook</button>
+        <button class="tab" id="tabToTry" aria-pressed="true">To try</button>
       </div>
 
       <div class="searchrow">
         <input type="search" id="search" name="cookbook-recipe-search" placeholder="Search recipes, ingredients, tags…" autocomplete="off" data-lpignore="true" data-1p-ignore data-bwignore="true">
-        <button class="chip" id="filterFav" aria-pressed="false">★ Favourites</button>
+        <button class="chip" id="filterFav" aria-pressed="false">Favourites</button>
       </div>
 
       <div class="chips" id="collectionChips"></div>
       <div class="grid" id="recipeGrid"></div>
       <div class="empty" id="recipeEmpty" hidden>
-        <div class="mark">📖</div>
+        <div class="mark">&mdash;</div>
         <h3 id="recipeEmptyTitle">No recipes yet</h3>
         <p id="recipeEmptyBody">Clip one from a website or photo, or write one in by hand.</p>
       </div>
@@ -82,10 +87,10 @@
           <div class="sub" id="weekLabel"></div>
         </div>
         <div style="display:flex;gap:9px">
-          <button class="btn sm" id="weekPrev">←</button>
+          <button class="btn sm" id="weekPrev" aria-label="Previous week">←</button>
           <button class="btn sm" id="weekToday">This week</button>
-          <button class="btn sm" id="weekNext">→</button>
-          <button class="btn primary sm" id="btnMakeList">🛒 Make shopping list</button>
+          <button class="btn sm" id="weekNext" aria-label="Next week">→</button>
+          <button class="btn primary sm" id="btnMakeList"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16l-1.4 12.2a1.5 1.5 0 0 1-1.5 1.3H6.9a1.5 1.5 0 0 1-1.5-1.3z"/><path d="M9 7V5a3 3 0 0 1 6 0v2"/></svg></span> Make shopping list</button>
         </div>
       </div>
       <div id="plannerGrid"></div>
@@ -113,7 +118,7 @@
     <section class="wrap view" id="viewCollections" hidden>
       <div class="pagehead">
         <div><h1>Collections</h1><div class="sub">Group recipes however you like.</div></div>
-        <button class="btn primary sm" id="btnNewCollection">＋ New collection</button>
+        <button class="btn primary sm" id="btnNewCollection"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></span> New collection</button>
       </div>
       <div class="grid" id="collectionGrid"></div>
     </section>
@@ -123,18 +128,18 @@
 
 <!-- Mobile bottom tab bar -->
 <nav class="tabbar">
-  <button class="navbtn" data-view="recipes"><span class="ico">📖</span> Recipes</button>
-  <button class="navbtn" data-view="planner"><span class="ico">🗓️</span> Planner</button>
-  <button class="navbtn" data-view="shopping"><span class="ico">🛒</span> Shopping</button>
-  <button class="navbtn" data-view="collections"><span class="ico">🗂️</span> Groups</button>
-  <button class="navbtn" id="navSettingsM"><span class="ico">⚙️</span> Settings</button>
+  <button class="navbtn" data-view="recipes"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H19v16H5.5A1.5 1.5 0 0 1 4 18.5z"/><path d="M8 4v16"/></svg></span> Recipes</button>
+  <button class="navbtn" data-view="planner"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15.5" rx="1.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg></span> Planner</button>
+  <button class="navbtn" data-view="shopping"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16l-1.4 12.2a1.5 1.5 0 0 1-1.5 1.3H6.9a1.5 1.5 0 0 1-1.5-1.3z"/><path d="M9 7V5a3 3 0 0 1 6 0v2"/></svg></span> Shopping</button>
+  <button class="navbtn" data-view="collections"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 7.5A1.5 1.5 0 0 1 5 6h4l2 2.5h7A1.5 1.5 0 0 1 19.5 10v7.5A1.5 1.5 0 0 1 18 19H5a1.5 1.5 0 0 1-1.5-1.5z"/></svg></span> Groups</button>
+  <button class="navbtn" id="navSettingsM"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M12 3v2.4M12 18.6V21M3 12h2.4M18.6 12H21M5.6 5.6l1.7 1.7M16.7 16.7l1.7 1.7M18.4 5.6l-1.7 1.7M7.3 16.7l-1.7 1.7"/></svg></span> Settings</button>
 </nav>
 
 <!-- ============ Settings ============ -->
 <dialog id="dlgSettings">
   <div class="dlg-head">
     <h2>Settings</h2>
-    <button class="btn ghost sm" data-close>✕</button>
+    <button class="btn ghost sm" data-close aria-label="Close">✕</button>
   </div>
   <div class="dlg-body">
     <label class="field">
@@ -194,7 +199,7 @@
 <dialog id="dlgEdit">
   <div class="dlg-head">
     <h2 id="editTitle">New recipe</h2>
-    <button class="btn ghost sm" data-close>✕</button>
+    <button class="btn ghost sm" data-close aria-label="Close">✕</button>
   </div>
   <div class="dlg-body">
     <label class="field">
@@ -229,8 +234,8 @@
       <span class="lbl">Ingredients</span>
       <div id="edIngredients"></div>
       <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
-        <button class="btn sm" id="edAddIng">＋ Add ingredient</button>
-        <button class="btn sm ghost" id="edPasteIng">📋 Paste a list</button>
+        <button class="btn sm" id="edAddIng"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></span> Add ingredient</button>
+        <button class="btn sm ghost" id="edPasteIng">Paste a list</button>
       </div>
       <span class="hint">Type amounts however you normally would — “2 1/2 cups”, “200g”, “a pinch”. They're parsed into scalable amounts automatically.</span>
     </div>
@@ -238,7 +243,7 @@
     <div class="field">
       <span class="lbl">Method</span>
       <div id="edSteps"></div>
-      <button class="btn sm" id="edAddStep" style="margin-top:8px">＋ Add step</button>
+      <button class="btn sm" id="edAddStep" style="margin-top:8px"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></span> Add step</button>
       <span class="hint">Tick the ingredients each step uses — those are what show beside the step when you're cooking.</span>
     </div>
 
@@ -268,13 +273,13 @@
 <dialog id="dlgClip">
   <div class="dlg-head">
     <h2>Clip a recipe</h2>
-    <button class="btn ghost sm" data-close>✕</button>
+    <button class="btn ghost sm" data-close aria-label="Close">✕</button>
   </div>
   <div class="dlg-body">
     <div class="chips" id="clipTabs">
-      <button class="chip" data-clip="url" aria-pressed="true">🔗 Website</button>
-      <button class="chip" data-clip="photo" aria-pressed="false">📷 Photo</button>
-      <button class="chip" data-clip="text" aria-pressed="false">📝 Paste text</button>
+      <button class="chip" data-clip="url" aria-pressed="true">Website</button>
+      <button class="chip" data-clip="photo" aria-pressed="false">Photo</button>
+      <button class="chip" data-clip="text" aria-pressed="false">Paste text</button>
     </div>
 
     <div class="clip-pane" data-pane="url">
@@ -314,7 +319,7 @@
 <dialog id="dlgAddMeal">
   <div class="dlg-head">
     <h2 id="addMealTitle">Add to planner</h2>
-    <button class="btn ghost sm" data-close>✕</button>
+    <button class="btn ghost sm" data-close aria-label="Close">✕</button>
   </div>
   <div class="dlg-body">
     <label class="field">

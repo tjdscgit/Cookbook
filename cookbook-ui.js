@@ -167,6 +167,9 @@
     const dark = saved ? saved === "dark"
       : window.matchMedia("(prefers-color-scheme: dark)").matches;
     document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+    // Keep the browser/PWA chrome on the same paper as the app.
+    const tc = document.querySelector('meta[name="theme-color"]');
+    if (tc) tc.setAttribute("content", dark ? "#16150F" : "#F6F3EC");
   }
   function toggleTheme() {
     const dark = document.documentElement.getAttribute("data-theme") === "dark";
@@ -422,7 +425,7 @@
       const thumb = document.createElement("div");
       thumb.className = "thumb";
       if (r.photoThumb) thumb.style.backgroundImage = `url("${cssUrl(r.photoThumb)}")`;
-      else thumb.textContent = "🍽️";
+      else thumb.textContent = (r.name || "?").trim().charAt(0).toUpperCase();
       open.appendChild(thumb);
 
       const body = document.createElement("div");
@@ -464,7 +467,7 @@
 
       const tried = document.createElement("button");
       tried.className = "tried";
-      tried.textContent = r.tried ? "✓" : "🔖";
+      tried.textContent = r.tried ? "\u2713" : "\u25CB";
       tried.setAttribute("aria-pressed", String(Boolean(r.tried)));
       tried.title = r.tried ? "Move back to To Try" : "Mark as tried (move to Cookbook)";
       tried.onclick = async (e) => {
@@ -554,8 +557,8 @@
     const spacer = document.createElement("span");
     spacer.style.marginLeft = "auto";
     bar.appendChild(spacer);
-    bar.appendChild(makeBtn("✏️ Edit", "btn ghost sm", () => openEditor(deepCopy(r))));
-    bar.appendChild(makeBtn("👩‍🍳 Cook", "btn primary sm", () => openCookMode(r, factor)));
+    bar.appendChild(makeBtn("Edit", "btn ghost sm", () => openEditor(deepCopy(r))));
+    bar.appendChild(makeBtn("Cook mode", "btn primary sm", () => openCookMode(r, factor)));
     el.appendChild(bar);
 
     // Servings stepper
@@ -1297,17 +1300,16 @@
     el.innerHTML = "";
     if (!S.collections.length) {
       el.innerHTML = `<div class="empty" style="grid-column:1/-1">
-        <div class="mark">🗂️</div><h3>No collections yet</h3>
+        <div class="mark">&mdash;</div><h3>No collections yet</h3>
         <p>Collections are just groups — “Weeknight dinners”, “Baking”, “Mum's recipes”.</p></div>`;
       return;
     }
     for (const c of S.collections) {
       const count = S.recipes.filter((r) => (r.collectionIds || []).includes(c.id)).length;
       const card = document.createElement("button");
-      card.className = "card";
-      card.style.padding = "20px 18px";
+      card.className = "card plain";
       card.innerHTML = `
-        <div style="font-size:30px;margin-bottom:8px">${escapeHtml(c.emoji || "🗂️")}</div>
+        <div class="initial">${escapeHtml(c.emoji || (c.name || "?").trim().charAt(0).toUpperCase())}</div>
         <div class="title" style="margin-bottom:3px">${escapeHtml(c.name)}</div>
         <div class="meta">${count} recipe${count === 1 ? "" : "s"}</div>`;
       card.onclick = () => { S.collectionId = c.id; setView("recipes"); };
