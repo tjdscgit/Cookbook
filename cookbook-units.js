@@ -397,13 +397,16 @@
   }
 
   // "1 cup" / "2 cups". Abbreviations (tsp, tbsp, g, ml) never pluralise — nobody writes "2 mls".
+  // The lookup is case-folded because a recipe written with a capital "L" for litres is the normal
+  // way to write it, and matching only the lower-case spelling produced "2.4 Ls" on shopping lists.
   const NEVER_PLURAL = new Set(["tsp", "tbsp", "ml", "l", "g", "kg", "oz", "lb", "fl oz"]);
   function pluraliseUnit(unit, qty) {
-    if (!unit || NEVER_PLURAL.has(unit)) return unit;
+    if (!unit || NEVER_PLURAL.has(unit.toLowerCase())) return unit;
     if (qty == null || qty === 1) return unit;
-    if (unit === "bunch") return "bunches";
-    if (unit === "pinch") return "pinches";
-    if (unit === "dash") return "dashes";
+    // Already written plural ("leaves", "greens") — adding another s gave "leavess".
+    if (/s$/i.test(unit)) return unit;
+    // bunch/pinch/dash/box take "es", not "s".
+    if (/(?:ch|sh|x|z)$/i.test(unit)) return unit + "es";
     return unit + "s";
   }
 

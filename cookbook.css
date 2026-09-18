@@ -554,6 +554,124 @@ input[type="file"] { min-height: 0; padding: 9px 12px; font-size: 14px; }
   max-width: 56ch;
 }
 
+/* ---------- planner ----------
+   A week is a ruled list, not seven bordered cards. The day sits in the left margin
+   like a running head; its meals are set beside it as lines of type. Today is marked
+   by a 2px rule in the margin — the same device as the active row in navigation. */
+.planner { border-top: 1px solid var(--ink); }
+.pday {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  gap: 28px;
+  padding: 18px 0 16px;
+  border-bottom: 1px solid var(--line);
+}
+.pday.today {
+  border-left: 2px solid var(--clay);
+  margin-left: -18px;
+  padding-left: 16px;
+}
+.pday-head .nm {
+  font-family: var(--serif);
+  font-size: 21px; font-weight: 600; letter-spacing: -.015em;
+  line-height: 1.15;
+}
+.pday-head .dt { font-size: 12.5px; color: var(--ink-faint); margin-top: 2px; }
+.pday-head .now {
+  margin-top: 8px;
+  font-size: var(--eyebrow-size); font-weight: 600;
+  letter-spacing: var(--eyebrow-track); text-transform: uppercase;
+  color: var(--clay);
+}
+
+.pmeal {
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1fr);
+  gap: 16px;
+  align-items: baseline;
+  padding: 5px 0;
+}
+.pmeal .lbl {
+  font-size: var(--eyebrow-size); font-weight: 600;
+  letter-spacing: var(--eyebrow-track); text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.pmeal .slots {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+}
+/* A planned meal is a line of type with a rule under the name — not a filled pill. */
+.pmeal-item {
+  display: inline-flex; align-items: baseline; gap: 9px;
+  min-height: 32px;
+  font-size: 14.5px;
+}
+.pmeal-item .nm {
+  text-align: left;
+  color: var(--ink);
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 1px;
+}
+.pmeal-item .nm:hover { color: var(--clay); border-bottom-color: var(--clay); }
+.pmeal-item .sv {
+  color: var(--ink-faint); font-size: 12.5px; font-variant-numeric: tabular-nums;
+}
+.pmeal-item .rm {
+  color: var(--ink-faint); font-size: 12px;
+  min-width: 28px; min-height: 28px;
+}
+.pmeal-item .rm:hover { color: var(--danger); }
+.padd {
+  align-self: flex-start;
+  min-height: 32px;
+  padding-right: 6px;
+  font-size: 13px;
+  color: var(--ink-faint);
+  text-decoration: none;
+}
+.padd::before { content: "+"; margin-right: 6px; }
+.padd:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
+
+/* The planner head carries two action groups on one line: the joined week control
+   and the shopping-list button beside it. */
+.planhead { align-items: center; }
+.headgroup { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+/* The buttons hug their labels here; only the phone layout stretches them. */
+.headgroup .btn { flex: 0 0 auto; }
+
+/* Week navigation: three buttons that read as one ruled control. */
+.weeknav { display: flex; flex: 0 0 auto; }
+.weeknav .btn { border-radius: 0; margin-left: -1px; flex: 0 0 auto; }
+.weeknav .btn:first-child { border-radius: var(--r-sm) 0 0 var(--r-sm); margin-left: 0; }
+.weeknav .btn:last-child { border-radius: 0 var(--r-sm) var(--r-sm) 0; }
+
+/* ---------- shopping list ----------
+   Aisle headings are the app's eyebrow; items are ruled lines. A ticked item fades
+   and rules through rather than disappearing, so you can see what you have. */
+.shoplist { margin-bottom: 22px; }
+.shoplist li { align-items: center; gap: 13px; }
+.shoplist .tickbox {
+  width: 20px; height: 20px; flex: 0 0 auto;
+  accent-color: var(--herb);
+  cursor: pointer;
+}
+.shoplist .qty {
+  flex: 0 0 auto;
+  font-style: italic; font-weight: 400;
+  color: var(--ink-faint); font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.shoplist .rm {
+  flex: 0 0 auto;
+  min-width: 34px; min-height: 34px;
+  color: var(--ink-faint); font-size: 12px;
+}
+.shoplist .rm:hover { color: var(--danger); }
+.shoplist li.done { opacity: .5; }
+.shoplist li.done .nm { text-decoration: line-through; }
+
+/* Four short fields on one line in the editor — serves, unit, prep, cook. */
+.fourup { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+
 /* ---------- cook mode ---------- */
 .cook {
   position: fixed; inset: 0; z-index: 100;
@@ -830,6 +948,33 @@ dialog::backdrop { background: rgba(27, 26, 23, .42); }
     gap: 9px;
   }
   .dlg-foot .btn { flex: 1; }
+
+
+  /* Planner: the day head sits above its meals rather than beside them. A week is
+     seven of these, so the rows are tight — the page head already rules the top. */
+  .planner { border-top: none; }
+  .pday { grid-template-columns: 1fr; gap: 6px; padding: 14px 0 12px; }
+  .pmeal { padding: 2px 0; }
+  .pmeal .slots { gap: 0; }
+  .pday.today { margin-left: -14px; padding-left: 12px; }
+  .pday-head { display: flex; align-items: baseline; gap: 9px; }
+  .pday-head .nm { font-size: 19px; }
+  .pday-head .now { margin-top: 0; margin-left: auto; }
+  .pmeal-item { min-height: 40px; }
+  .pmeal-item .rm { min-width: 40px; min-height: 40px; }
+  .padd { min-height: 40px; }
+  .headgroup { width: 100%; gap: 9px; }
+  .weeknav { width: 100%; }
+  .weeknav .btn, .headgroup > .btn { flex: 1; }
+  .pmeal { grid-template-columns: 78px minmax(0, 1fr); gap: 12px; }
+
+  /* Shopping: a list you hold in one hand in an aisle — bigger rows, bigger ticks. */
+  .shoplist li { padding: 12px 0; gap: 14px; }
+  .shoplist .tickbox { width: 24px; height: 24px; }
+  .shoplist .nm { font-size: 15.5px; }
+  .shoplist .rm { min-width: 44px; min-height: 44px; }
+
+  .fourup { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 
   .toast { bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 14px); }
   .empty { padding: 48px 12px; }
