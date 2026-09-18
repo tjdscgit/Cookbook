@@ -1,7 +1,8 @@
-// Bumped to v3 for the Editorial Press redesign. A phone still holding the v2 shell would keep
-// serving the old stylesheet and markup from its own cache — the new look would never appear —
-// so the old cache has to go. Any change to the shell files needs this number bumped again.
-const CACHE_NAME = "cookbook-shell-v3";
+// Bumped to v4: the redesign reached the planner, shopping list and dialogs. A phone still
+// holding an older shell would keep serving the old stylesheet and markup from its own cache —
+// the new look would never appear — so the old cache has to go. Any change to the shell files
+// needs this number bumped again.
+const CACHE_NAME = "cookbook-shell-v4";
 const SHELL_FILES = [
   "./index.html",
   "./cookbook.css",

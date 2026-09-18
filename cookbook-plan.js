@@ -57,74 +57,73 @@
     const monday = new Date(week.weekStarting + "T00:00:00");
     const today = isoDate(new Date());
     el.innerHTML = "";
+    el.className = "planner";
 
     for (const [i, date] of weekDates(monday).entries()) {
       const key = isoDate(date);
       const dayPlan = week.plan[key] || {};
       const isToday = key === today;
 
+      // A week is a ruled list, not seven bordered cards: the day sits in the left
+      // margin like a running head, its meals set beside it.
       const day = document.createElement("section");
-      day.style.cssText = `
-        border:1px solid var(--line); border-radius:var(--r); background:var(--card);
-        margin-bottom:12px; overflow:hidden;
-        ${isToday ? "border-color:var(--clay-soft); box-shadow:0 0 0 2px var(--clay-wash);" : ""}`;
+      day.className = isToday ? "pday today" : "pday";
 
       const head = document.createElement("div");
-      head.style.cssText = "display:flex;align-items:baseline;gap:9px;padding:11px 15px;border-bottom:1px solid var(--line-soft);";
+      head.className = "pday-head";
       head.innerHTML = `
-        <b style="font-family:var(--serif);font-size:16px">${DAY_NAMES[i]}</b>
-        <span style="color:var(--ink-faint);font-size:13px">${date.toLocaleDateString("en-AU", { day: "numeric", month: "short" })}</span>
-        ${isToday ? '<span style="margin-left:auto;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--clay)">Today</span>' : ""}`;
+        <div class="nm">${DAY_NAMES[i]}</div>
+        <div class="dt">${date.toLocaleDateString("en-AU", { day: "numeric", month: "short" })}</div>
+        ${isToday ? '<div class="now">Today</div>' : ""}`;
       day.appendChild(head);
 
       const body = document.createElement("div");
-      body.style.cssText = "padding:9px 15px 13px;";
+      body.className = "pday-body";
 
       for (const meal of MEALS) {
         const entries = dayPlan[meal] || [];
         const row = document.createElement("div");
-        row.style.cssText = "display:flex;align-items:flex-start;gap:11px;padding:6px 0;";
+        row.className = "pmeal";
 
         const label = document.createElement("div");
         label.textContent = meal;
-        label.style.cssText = "flex:0 0 82px;font-size:12.5px;font-weight:600;color:var(--ink-faint);padding-top:5px;";
+        label.className = "lbl";
         row.appendChild(label);
 
         const slots = document.createElement("div");
-        slots.style.cssText = "flex:1;display:flex;flex-wrap:wrap;gap:6px;align-items:center;";
+        slots.className = "slots";
 
         for (const entry of entries) {
           const recipe = recipesById[entry.recipeId];
-          const pill = document.createElement("span");
-          pill.style.cssText = `display:inline-flex;align-items:center;gap:7px;background:var(--clay-wash);
-            border:1px solid var(--clay-soft);border-radius:999px;padding:4px 6px 4px 12px;font-size:13.5px;`;
+          const item = document.createElement("span");
+          item.className = "pmeal-item";
 
           const nameBtn = document.createElement("button");
           nameBtn.textContent = recipe ? recipe.name : "(deleted recipe)";
-          nameBtn.style.cssText = "color:var(--clay);font-weight:500;text-align:left;";
+          nameBtn.className = "nm";
           if (recipe) nameBtn.onclick = () => onOpen(recipe.id);
-          pill.appendChild(nameBtn);
+          item.appendChild(nameBtn);
 
           const serves = document.createElement("span");
-          serves.textContent = `×${entry.servings}`;
-          serves.style.cssText = "color:var(--ink-faint);font-size:12px;font-variant-numeric:tabular-nums;";
-          pill.appendChild(serves);
+          serves.textContent = `\u00D7${entry.servings}`;
+          serves.className = "sv";
+          item.appendChild(serves);
 
           const x = document.createElement("button");
-          x.textContent = "✕";
+          x.textContent = "\u2715";
           x.title = "Remove";
-          x.style.cssText = "color:var(--ink-faint);font-size:12px;padding:2px 4px;";
+          x.setAttribute("aria-label", `Remove ${recipe ? recipe.name : "meal"}`);
+          x.className = "rm";
           x.onclick = () => onRemove(key, meal, entry);
-          pill.appendChild(x);
+          item.appendChild(x);
 
-          slots.appendChild(pill);
+          slots.appendChild(item);
         }
 
         const add = document.createElement("button");
-        add.textContent = "＋";
+        add.textContent = entries.length ? "Add another" : "Add";
         add.title = `Add a ${meal.toLowerCase()}`;
-        add.style.cssText = `width:26px;height:26px;border-radius:50%;border:1px dashed var(--line);
-          color:var(--ink-faint);font-size:14px;line-height:1;`;
+        add.className = "padd";
         add.onclick = () => onAdd(key, meal);
         slots.appendChild(add);
 
@@ -158,7 +157,7 @@
 
     if (!list || !list.items || !list.items.length) {
       el.innerHTML = `<div class="empty">
-        <div class="mark">🛒</div>
+        <div class="mark">&mdash;</div>
         <h3>Nothing on the list</h3>
         <p>Plan some meals for the week, then use “Make shopping list” — or add items by hand above.</p>
       </div>`;
@@ -187,18 +186,16 @@
       el.appendChild(head);
 
       const ul = document.createElement("ul");
-      ul.className = "inglist";
-      ul.style.marginBottom = "14px";
+      ul.className = "inglist shoplist";
 
       for (const item of items) {
         const li = document.createElement("li");
-        li.style.alignItems = "center";
-        if (item.checked) li.style.opacity = ".45";
+        if (item.checked) li.className = "done";
 
         const box = document.createElement("input");
         box.type = "checkbox";
         box.checked = Boolean(item.checked);
-        box.style.cssText = "width:19px;height:19px;accent-color:var(--clay);flex:0 0 auto;";
+        box.className = "tickbox";
         box.onchange = () => onToggle(item, box.checked);
         li.appendChild(box);
 
@@ -208,21 +205,21 @@
         const nm = document.createElement("span");
         nm.className = "nm";
         nm.textContent = item.name;
-        if (item.checked) nm.style.textDecoration = "line-through";
         li.appendChild(nm);
 
         if (item.qty != null) {
           const qtyText = `${Units.formatQty(item.qty)} ${Units.pluraliseUnit(item.unit, item.qty)}`.trim();
           const amt = document.createElement("span");
-          amt.style.cssText = "font-style:italic;font-weight:400;color:var(--ink-faint);font-size:13px;flex:0 0 auto;";
+          amt.className = "qty";
           amt.textContent = `(${qtyText})`;
           li.appendChild(amt);
         }
 
         const x = document.createElement("button");
-        x.textContent = "✕";
+        x.textContent = "\u2715";
         x.title = "Remove";
-        x.style.cssText = "color:var(--ink-faint);font-size:13px;padding:2px 6px;flex:0 0 auto;";
+        x.setAttribute("aria-label", `Remove ${item.name}`);
+        x.className = "rm";
         x.onclick = () => onRemove(item);
         li.appendChild(x);
 

@@ -81,15 +81,17 @@
 
     <!-- ============ Planner ============ -->
     <section class="wrap view" id="viewPlanner" hidden>
-      <div class="pagehead">
+      <div class="pagehead planhead">
         <div>
           <h1>Weekly planner</h1>
           <div class="sub" id="weekLabel"></div>
         </div>
-        <div style="display:flex;gap:9px">
-          <button class="btn sm" id="weekPrev" aria-label="Previous week">←</button>
-          <button class="btn sm" id="weekToday">This week</button>
-          <button class="btn sm" id="weekNext" aria-label="Next week">→</button>
+        <div class="headgroup">
+          <div class="weeknav">
+            <button class="btn sm" id="weekPrev" aria-label="Previous week">←</button>
+            <button class="btn sm" id="weekToday">This week</button>
+            <button class="btn sm" id="weekNext" aria-label="Next week">→</button>
+          </div>
           <button class="btn primary sm" id="btnMakeList"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16l-1.4 12.2a1.5 1.5 0 0 1-1.5 1.3H6.9a1.5 1.5 0 0 1-1.5-1.3z"/><path d="M9 7V5a3 3 0 0 1 6 0v2"/></svg></span> Make shopping list</button>
         </div>
       </div>
@@ -223,7 +225,7 @@
       </div>
     </div>
 
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px">
+    <div class="fourup">
       <label class="field"><span class="lbl">Serves</span><input type="number" id="edServings" min="1" step="1" value="4"></label>
       <label class="field"><span class="lbl">Unit</span><input type="text" id="edServingUnit" value="servings"></label>
       <label class="field"><span class="lbl">Prep (min)</span><input type="number" id="edPrep" min="0" step="5"></label>
