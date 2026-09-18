@@ -1,6 +1,7 @@
-// Bumped to v2 for the Airtable → Firestore move. A device still holding the v1 shell would keep
-// running the old data layer against a backend that no longer answers, so the old cache has to go.
-const CACHE_NAME = "cookbook-shell-v2";
+// Bumped to v3 for the Editorial Press redesign. A phone still holding the v2 shell would keep
+// serving the old stylesheet and markup from its own cache — the new look would never appear —
+// so the old cache has to go. Any change to the shell files needs this number bumped again.
+const CACHE_NAME = "cookbook-shell-v3";
 const SHELL_FILES = [
   "./index.html",
   "./cookbook.css",
