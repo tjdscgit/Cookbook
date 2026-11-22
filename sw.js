@@ -1,6 +1,7 @@
-// v2 was the Airtable → Firestore move. v3 is the redesign (new shell, tokens, cook-mode timers):
-// bump this on every deploy so devices drop the old shell.
-const CACHE_NAME = "cookbook-shell-v3";
+// v2 was the Airtable → Firestore move, v3/v4 the "Editorial Press" redesign. v5 is the redesign
+// from design/cookbook-redesign.html (new shell, tokens, cook-mode timers). Bump this on every
+// deploy so devices drop the old shell.
+const CACHE_NAME = "cookbook-shell-v5";
 const SHELL_FILES = [
   "./index.html",
   "./cookbook.css",

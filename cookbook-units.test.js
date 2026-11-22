@@ -201,5 +201,20 @@ eq(saltLine.qty, null, "pinch of salt has no shopping quantity");
 const eggLine = list.find((l) => l.name.includes("egg"));
 eq(eggLine.qty, 4, "2 eggs doubled = 4");
 
+// --- unit pluralisation -----------------------------------------------------
+section("pluraliseUnit");
+eq(U.pluraliseUnit("cup", 2), "cups", "cup -> cups");
+eq(U.pluraliseUnit("cup", 1), "cup", "one stays singular");
+eq(U.pluraliseUnit("g", 600), "g", "abbreviations never pluralise");
+// A capital L is the normal way to write litres; matching only "l" gave "2.4 Ls" on the list.
+eq(U.pluraliseUnit("L", 2.4), "L", "capital L is still an abbreviation");
+eq(U.pluraliseUnit("ML", 50), "ML", "case-folded lookup");
+// Units that are already plural must not gain a second s.
+eq(U.pluraliseUnit("leaves", 24), "leaves", "already plural stays put");
+eq(U.pluraliseUnit("bunch", 2), "bunches", "bunch -> bunches");
+eq(U.pluraliseUnit("pinch", 3), "pinches", "pinch -> pinches");
+eq(U.pluraliseUnit("dash", 2), "dashes", "dash -> dashes");
+eq(U.pluraliseUnit("box", 2), "boxes", "box -> boxes");
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
