@@ -3,96 +3,73 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#B3502E">
+<meta name="theme-color" content="#1F4D2E">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <title>Cookbook</title>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Roboto+Flex:opsz,wght@8..144,400;8..144,450;8..144,500;8..144,600;8..144,700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="cookbook.css">
 </head>
 <body>
 
-<div class="app">
+<div class="app" id="app">
 
-  <!-- Desktop navigation. The mobile tab bar at the bottom of this file mirrors it; both drive the
-       same data-view buttons so there's one navigation handler, not two. -->
-  <nav class="sidenav">
-    <div class="brand"><span class="mark">🍳</span> Cookbook</div>
-    <button class="navbtn" data-view="recipes"><span class="ico">📖</span> Recipes</button>
-    <button class="navbtn" data-view="planner"><span class="ico">🗓️</span> Planner</button>
-    <button class="navbtn" data-view="shopping"><span class="ico">🛒</span> Shopping</button>
-    <button class="navbtn" data-view="collections"><span class="ico">🗂️</span> Collections</button>
+  <!-- Desktop navigation. The phone tab bar below drives the same data-view buttons, so there is
+       one navigation handler, not two. -->
+  <nav class="side">
+    <div class="brand">Cookbook</div>
+    <button class="nv" data-view="recipes">Recipes</button>
+    <button class="nv" data-view="planner">Plan</button>
+    <button class="nv" data-view="shopping">Shop</button>
     <div class="navspacer"></div>
-    <button class="navbtn" id="navTheme"><span class="ico">🌗</span> Theme</button>
-    <button class="navbtn" id="navSettings"><span class="ico">⚙️</span> Settings</button>
+    <button class="nv" id="navSettings">Settings</button>
   </nav>
 
-  <main class="main">
+  <main class="main" id="main">
 
     <!-- ============ Recipes ============ -->
-    <section class="wrap view" id="viewRecipes">
+    <section class="view" id="viewRecipes">
+      <div class="top"><h1 class="h1">Recipes</h1><button class="ib" id="btnRecipesMore" aria-label="More">⋯</button></div>
       <div id="setupBanner" class="banner" hidden>
-        <h3>Connect your cookbook</h3>
-        <p style="margin:0 0 10px">Sign in under settings, and your recipes will sync between this device and your phone.</p>
-        <button class="btn primary sm" id="bannerSettings">Open settings</button>
+        <b>Connect your cookbook</b>
+        <p>Sign in under settings, and your recipes will sync between this device and your phone.</p>
+        <button class="btn sm" id="bannerSettings">Open settings</button>
       </div>
-
-      <div class="pagehead">
-        <div>
-          <h1>Recipes</h1>
-          <div class="sub" id="recipeCount"></div>
-        </div>
-        <div style="display:flex;gap:9px;flex-wrap:wrap">
-          <button class="btn" id="btnClip">✂️ Clip</button>
-          <button class="btn primary" id="btnNew">＋ New recipe</button>
-        </div>
+      <input class="search" type="search" id="search" name="cookbook-recipe-search" placeholder="Search recipes, ingredients, sites" aria-label="Search" autocomplete="off" data-lpignore="true" data-1p-ignore data-bwignore="true">
+      <div class="utabs" id="sectionTabs">
+        <button class="utab" data-tab="cookbook">Cookbook<span id="nCookbook"></span></button>
+        <button class="utab" data-tab="toTry">To try<span id="nToTry"></span></button>
+        <button class="utab" data-tab="cols">Collections</button>
       </div>
-
-      <div class="tabs" id="sectionTabs">
-        <button class="tab" id="tabCookbook" aria-pressed="false">📖 Cookbook</button>
-        <button class="tab" id="tabToTry" aria-pressed="true">🔖 To Try</button>
-      </div>
-
-      <div class="searchrow">
-        <input type="search" id="search" name="cookbook-recipe-search" placeholder="Search recipes, ingredients, tags…" autocomplete="off" data-lpignore="true" data-1p-ignore data-bwignore="true">
-        <button class="chip" id="filterFav" aria-pressed="false">★ Favourites</button>
-      </div>
-
-      <div class="chips" id="collectionChips"></div>
-      <div class="grid" id="recipeGrid"></div>
-      <div class="empty" id="recipeEmpty" hidden>
-        <div class="mark">📖</div>
-        <h3 id="recipeEmptyTitle">No recipes yet</h3>
-        <p id="recipeEmptyBody">Clip one from a website or photo, or write one in by hand.</p>
-      </div>
+      <div id="recipesBody"></div>
     </section>
 
-    <!-- ============ Recipe detail ============ -->
-    <section class="wrap view" id="viewRecipe" hidden>
-      <button class="btn ghost sm" id="btnBack" style="margin-bottom:14px">← Back</button>
-      <div class="detail" id="recipeDetail"></div>
-    </section>
+    <!-- ============ Recipe page ============ -->
+    <section class="view" id="viewRecipe" hidden></section>
 
     <!-- ============ Planner ============ -->
-    <section class="wrap view" id="viewPlanner" hidden>
+    <section class="view legacy" id="viewPlanner" hidden>
       <div class="pagehead">
         <div>
           <h1>Weekly planner</h1>
           <div class="sub" id="weekLabel"></div>
         </div>
-        <div style="display:flex;gap:9px">
-          <button class="btn sm" id="weekPrev">←</button>
+        <div style="display:flex;gap:9px;flex-wrap:wrap">
+          <button class="btn sm" id="weekPrev" aria-label="Previous week">‹</button>
           <button class="btn sm" id="weekToday">This week</button>
-          <button class="btn sm" id="weekNext">→</button>
-          <button class="btn primary sm" id="btnMakeList">🛒 Make shopping list</button>
+          <button class="btn sm" id="weekNext" aria-label="Next week">›</button>
+          <button class="btn primary sm" id="btnMakeList">Make shopping list</button>
         </div>
       </div>
       <div id="plannerGrid"></div>
     </section>
 
     <!-- ============ Shopping ============ -->
-    <section class="wrap view" id="viewShopping" hidden>
+    <section class="view legacy" id="viewShopping" hidden>
       <div class="pagehead">
         <div>
           <h1>Shopping list</h1>
@@ -109,34 +86,26 @@
       <div id="shoppingList"></div>
     </section>
 
-    <!-- ============ Collections ============ -->
-    <section class="wrap view" id="viewCollections" hidden>
-      <div class="pagehead">
-        <div><h1>Collections</h1><div class="sub">Group recipes however you like.</div></div>
-        <button class="btn primary sm" id="btnNewCollection">＋ New collection</button>
-      </div>
-      <div class="grid" id="collectionGrid"></div>
-    </section>
-
   </main>
-</div>
 
-<!-- Mobile bottom tab bar -->
-<nav class="tabbar">
-  <button class="navbtn" data-view="recipes"><span class="ico">📖</span> Recipes</button>
-  <button class="navbtn" data-view="planner"><span class="ico">🗓️</span> Planner</button>
-  <button class="navbtn" data-view="shopping"><span class="ico">🛒</span> Shopping</button>
-  <button class="navbtn" data-view="collections"><span class="ico">🗂️</span> Groups</button>
-  <button class="navbtn" id="navSettingsM"><span class="ico">⚙️</span> Settings</button>
-</nav>
+  <button class="fab" id="btnAdd">+ Add recipe</button>
+
+  <!-- Phone tab bar -->
+  <nav class="tabbar">
+    <button class="tb" data-view="recipes"><span>Recipes</span></button>
+    <button class="tb" data-view="planner"><span>Plan</span></button>
+    <button class="tb" data-view="shopping"><span>Shop</span></button>
+  </nav>
+</div>
 
 <!-- ============ Settings ============ -->
 <dialog id="dlgSettings">
-  <div class="dlg-head">
-    <h2>Settings</h2>
-    <button class="btn ghost sm" data-close>✕</button>
+  <div class="grab"></div>
+  <div class="sh-h">
+    <h3>Settings</h3>
+    <button class="ib" data-close aria-label="Close">✕</button>
   </div>
-  <div class="dlg-body">
+  <div class="sh-b">
     <label class="field">
       <span class="lbl">Firebase project id</span>
       <input type="text" id="setProject" placeholder="my-cookbook" autocomplete="off" spellcheck="false">
@@ -153,17 +122,17 @@
       <div id="authSignedOut" hidden>
         <input type="email" id="setEmail" name="cookbook-email" placeholder="you@example.com" autocomplete="username" spellcheck="false" style="margin-bottom:8px">
         <input type="password" id="setPassword" name="cookbook-password" placeholder="Password" autocomplete="current-password" data-lpignore="true" data-1p-ignore data-bwignore="true">
-        <button class="btn sm" id="btnSignIn" type="button" style="align-self:flex-start;margin-top:8px">Sign in</button>
-        <span class="hint">The account you created under Authentication in the Firebase console. Your password is never stored — signing in swaps it once for a token this browser keeps.</span>
+        <button class="btn sm" id="btnSignIn" type="button" style="margin-top:8px">Sign in</button>
+        <span class="hint" style="display:block;margin-top:6px">The account you created under Authentication in the Firebase console. Your password is never stored — signing in swaps it once for a token this browser keeps.</span>
       </div>
       <div id="authSignedIn" hidden>
         <p style="margin:0 0 8px">Signed in as <b id="authEmail"></b></p>
-        <button class="btn sm" id="btnSignOut" type="button" style="align-self:flex-start">Sign out</button>
+        <button class="btn sm" id="btnSignOut" type="button">Sign out</button>
       </div>
     </div>
 
     <label class="field">
-      <span class="lbl">Anthropic API key <span style="font-weight:400;color:var(--ink-faint)">(optional)</span></span>
+      <span class="lbl">Anthropic API key <span style="font-weight:400">(optional)</span></span>
       <input type="password" id="setKey" name="cookbook-anthropic-key" placeholder="sk-ant-…" autocomplete="new-password" spellcheck="false" data-lpignore="true" data-1p-ignore data-bwignore="true">
       <span class="hint">Only needed for clipping recipes from <b>photos</b> and <b>social posts</b>. Website clipping and manual entry work without it. Roughly 5–6¢ per photo read.</span>
     </label>
@@ -175,28 +144,29 @@
       </select>
       <span class="hint">Only affects how amounts are combined on the shopping list. Recipes always display the units they were written in.</span>
     </label>
-    <div id="connStatus" style="font-size:14px;min-height:22px"></div>
+    <div id="connStatus" class="status"></div>
     <div class="field">
       <span class="lbl">Import recipes</span>
       <input type="file" id="setImportFile" accept="application/json,.json">
-      <span class="hint">A JSON file exported from another recipe app and converted with <b>scripts/convert-flavorish.mjs</b>. Recipes already in the cookbook under the same name are skipped, so running it twice is safe.</span>
-      <button class="btn sm" id="btnImport" type="button" style="align-self:flex-start;margin-top:8px">Import</button>
+      <span class="hint" style="display:block;margin-top:6px">A JSON file exported from another recipe app and converted with <b>scripts/convert-flavorish.mjs</b>. Recipes already in the cookbook under the same name are skipped, so running it twice is safe.</span>
+      <button class="btn sm" id="btnImport" type="button" style="margin-top:8px">Import</button>
     </div>
-    <div id="importStatus" style="font-size:14px;min-height:22px"></div>
+    <div id="importStatus" class="status"></div>
   </div>
-  <div class="dlg-foot">
-    <button class="btn" id="btnTest">Test connection</button>
-    <button class="btn primary" id="btnSaveSettings">Save</button>
+  <div class="sh-f row">
+    <button class="btn line" id="btnTest">Test connection</button>
+    <button class="btn" id="btnSaveSettings">Save</button>
   </div>
 </dialog>
 
 <!-- ============ Recipe editor ============ -->
 <dialog id="dlgEdit">
-  <div class="dlg-head">
-    <h2 id="editTitle">New recipe</h2>
-    <button class="btn ghost sm" data-close>✕</button>
+  <div class="grab"></div>
+  <div class="sh-h">
+    <h3 id="editTitle">New recipe</h3>
+    <button class="ib" data-close aria-label="Close">✕</button>
   </div>
-  <div class="dlg-body">
+  <div class="sh-b">
     <label class="field">
       <span class="lbl">Name</span>
       <input type="text" id="edName" placeholder="Lemon drizzle cake">
@@ -209,16 +179,16 @@
     <div class="field">
       <span class="lbl">Photo</span>
       <div style="display:flex;gap:10px;align-items:flex-start">
-        <img id="edPhotoPreview" hidden style="width:96px;height:96px;object-fit:cover;border-radius:10px;flex:none">
+        <img id="edPhotoPreview" hidden alt="" style="width:96px;height:96px;object-fit:cover;border-radius:12px;flex:none">
         <div style="flex:1;min-width:0">
           <input type="url" id="edPhotoUrl" placeholder="https://…">
           <span class="hint" id="edPhotoHint" hidden>Grabbed from the source page — replace the URL above or clear it if it's wrong.</span>
         </div>
-        <button class="btn sm ghost" id="edPhotoClear" style="flex:none">Clear</button>
+        <button class="btn sm" id="edPhotoClear" style="flex:none">Clear</button>
       </div>
     </div>
 
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;align-items:end">
       <label class="field"><span class="lbl">Serves</span><input type="number" id="edServings" min="1" step="1" value="4"></label>
       <label class="field"><span class="lbl">Unit</span><input type="text" id="edServingUnit" value="servings"></label>
       <label class="field"><span class="lbl">Prep (min)</span><input type="number" id="edPrep" min="0" step="5"></label>
@@ -229,17 +199,17 @@
       <span class="lbl">Ingredients</span>
       <div id="edIngredients"></div>
       <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
-        <button class="btn sm" id="edAddIng">＋ Add ingredient</button>
-        <button class="btn sm ghost" id="edPasteIng">📋 Paste a list</button>
+        <button class="btn sm" id="edAddIng">+ Add ingredient</button>
+        <button class="btn sm" id="edPasteIng">Paste a list</button>
       </div>
-      <span class="hint">Type amounts however you normally would — “2 1/2 cups”, “200g”, “a pinch”. They're parsed into scalable amounts automatically.</span>
+      <span class="hint" style="display:block;margin-top:6px">Type amounts however you normally would — “2 1/2 cups”, “200g”, “a pinch”. They're parsed into scalable amounts automatically.</span>
     </div>
 
     <div class="field">
       <span class="lbl">Method</span>
       <div id="edSteps"></div>
-      <button class="btn sm" id="edAddStep" style="margin-top:8px">＋ Add step</button>
-      <span class="hint">Tick the ingredients each step uses — those are what show beside the step when you're cooking.</span>
+      <button class="btn sm" id="edAddStep" style="margin-top:8px">+ Add step</button>
+      <span class="hint" style="display:block;margin-top:6px">Tick the ingredients each step uses — those are what show beside the step when you're cooking.</span>
     </div>
 
     <label class="field">
@@ -257,24 +227,25 @@
       <input type="url" id="edSource" placeholder="https://…">
     </label>
   </div>
-  <div class="dlg-foot">
+  <div class="sh-f row">
     <button class="btn danger" id="btnDelete" hidden>Delete</button>
-    <button class="btn" data-close>Cancel</button>
-    <button class="btn primary" id="btnSaveRecipe">Save recipe</button>
+    <button class="btn line" data-close>Cancel</button>
+    <button class="btn" id="btnSaveRecipe">Save recipe</button>
   </div>
 </dialog>
 
 <!-- ============ Clipper ============ -->
 <dialog id="dlgClip">
-  <div class="dlg-head">
-    <h2>Clip a recipe</h2>
-    <button class="btn ghost sm" data-close>✕</button>
+  <div class="grab"></div>
+  <div class="sh-h">
+    <h3>Clip a recipe</h3>
+    <button class="ib" data-close aria-label="Close">✕</button>
   </div>
-  <div class="dlg-body">
+  <div class="sh-b">
     <div class="chips" id="clipTabs">
-      <button class="chip" data-clip="url" aria-pressed="true">🔗 Website</button>
-      <button class="chip" data-clip="photo" aria-pressed="false">📷 Photo</button>
-      <button class="chip" data-clip="text" aria-pressed="false">📝 Paste text</button>
+      <button class="chip" data-clip="url" aria-pressed="true">Website</button>
+      <button class="chip" data-clip="photo" aria-pressed="false">Photo</button>
+      <button class="chip" data-clip="text" aria-pressed="false">Paste text</button>
     </div>
 
     <div class="clip-pane" data-pane="url">
@@ -291,7 +262,7 @@
         <input type="file" id="clipPhoto" accept="image/*">
         <span class="hint">A cookbook page, a handwritten card, or a screenshot of a social post. Needs an Anthropic API key — roughly 5–6¢ per photo.</span>
       </label>
-      <img id="clipPreview" hidden style="border-radius:var(--r-sm);margin-top:10px;max-height:220px;object-fit:contain">
+      <img id="clipPreview" hidden alt="" style="border-radius:14px;margin-top:10px;max-height:220px;object-fit:contain">
     </div>
 
     <div class="clip-pane" data-pane="text" hidden>
@@ -302,21 +273,25 @@
       </label>
     </div>
 
-    <div id="clipStatus" style="font-size:14px;min-height:22px;margin-top:6px"></div>
+    <div id="clipStatus" class="status" style="margin-top:6px"></div>
+    <!-- Manual entry used to be the "New recipe" button on the Recipes header, which the redesign
+         drops; until the full Add recipe sheet (later stage) lands, it lives here. -->
+    <button class="btn sm" id="btnNew" style="margin-top:8px">Write it yourself</button>
   </div>
-  <div class="dlg-foot">
-    <button class="btn" data-close>Cancel</button>
-    <button class="btn primary" id="btnDoClip">Read recipe</button>
+  <div class="sh-f row">
+    <button class="btn line" data-close>Cancel</button>
+    <button class="btn" id="btnDoClip">Read recipe</button>
   </div>
 </dialog>
 
-<!-- ============ Add to planner ============ -->
+<!-- ============ Add to planner (from the planner's day slots) ============ -->
 <dialog id="dlgAddMeal">
-  <div class="dlg-head">
-    <h2 id="addMealTitle">Add to planner</h2>
-    <button class="btn ghost sm" data-close>✕</button>
+  <div class="grab"></div>
+  <div class="sh-h">
+    <h3 id="addMealTitle">Add to planner</h3>
+    <button class="ib" data-close aria-label="Close">✕</button>
   </div>
-  <div class="dlg-body">
+  <div class="sh-b">
     <label class="field">
       <span class="lbl">Recipe</span>
       <select id="mealRecipe"></select>
@@ -326,9 +301,9 @@
       <input type="number" id="mealServings" min="1" step="1" value="4">
     </label>
   </div>
-  <div class="dlg-foot">
-    <button class="btn" data-close>Cancel</button>
-    <button class="btn primary" id="btnAddMeal">Add</button>
+  <div class="sh-f row">
+    <button class="btn line" data-close>Cancel</button>
+    <button class="btn" id="btnAddMeal">Add</button>
   </div>
 </dialog>
 
@@ -336,6 +311,7 @@
 <div id="cookRoot"></div>
 
 <script src="cookbook-units.js"></script>
+<script src="cookbook-timer.js"></script>
 <script src="cookbook-data.js"></script>
 <script src="cookbook-clip.js"></script>
 <script src="cookbook-plan.js"></script>

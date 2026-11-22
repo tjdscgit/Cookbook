@@ -155,7 +155,7 @@
   // Auth
   // ---------------------------------------------------------------------------
   async function signIn(email, password) {
-    if (!isConfigured()) throw new Error("Set the Firebase project id and web API key first, under settings ⚙.");
+    if (!isConfigured()) throw new Error("Set the Firebase project id and web API key first, under Settings.");
     const r = await fetch(`${IDENTITY}/accounts:signInWithPassword?key=${encodeURIComponent(APIKEY)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -204,7 +204,7 @@
         return "Email/password sign-in isn't switched on yet. Enable it in the Firebase console under Authentication → Sign-in method.";
       case "TOKEN_EXPIRED":
       case "INVALID_REFRESH_TOKEN":
-        return "Your session expired. Sign in again under settings ⚙.";
+        return "Your session expired. Sign in again under Settings.";
       default:
         return `Firebase refused the sign-in${code ? ` (${code})` : ""}.`;
     }
@@ -213,7 +213,7 @@
   // Returns a valid ID token, minting a fresh one from the refresh token when the current one is
   // within a minute of expiry. Every Firestore call goes through this.
   async function token() {
-    if (!REFRESH) throw new Error("Not signed in. Open settings ⚙ and sign in to your cookbook.");
+    if (!REFRESH) throw new Error("Not signed in. Open Settings and sign in to your cookbook.");
     if (idToken && Date.now() < idTokenExpiry) return idToken;
 
     const r = await fetch(`${SECURETOKEN}/token?key=${encodeURIComponent(APIKEY)}`, {
@@ -303,7 +303,7 @@
   }
 
   async function request(href, opts, retrying) {
-    if (!isConfigured()) throw new Error("No Firebase project configured. Open settings ⚙ and paste your project id and web API key.");
+    if (!isConfigured()) throw new Error("No Firebase project configured. Open Settings and paste your project id and web API key.");
     const t = await token();
     const r = await fetch(href, Object.assign({}, opts, {
       headers: Object.assign({ Authorization: `Bearer ${t}`, "Content-Type": "application/json" }, (opts || {}).headers),
@@ -317,7 +317,7 @@
         idToken = ""; idTokenExpiry = 0;
         return request(href, opts, true);
       }
-      if (r.status === 401) throw new Error("Firebase rejected the session. Sign in again under settings ⚙.");
+      if (r.status === 401) throw new Error("Firebase rejected the session. Sign in again under Settings.");
       if (r.status === 403) throw new Error("Firestore denied access (403). Check your security rules allow this account, and that the Firestore database has been created.");
       if (r.status === 404) throw new Error(`Firestore returned 404 — check the project id is right and the database exists. ${body.slice(0, 160)}`);
       if (r.status === 429) throw new Error("Firestore quota exceeded (429). This should be rare on the free tier — check the Firebase console usage page.");

@@ -1,10 +1,11 @@
-// Bumped to v2 for the Airtable → Firestore move. A device still holding the v1 shell would keep
-// running the old data layer against a backend that no longer answers, so the old cache has to go.
-const CACHE_NAME = "cookbook-shell-v2";
+// v2 was the Airtable → Firestore move. v3 is the redesign (new shell, tokens, cook-mode timers):
+// bump this on every deploy so devices drop the old shell.
+const CACHE_NAME = "cookbook-shell-v3";
 const SHELL_FILES = [
   "./index.html",
   "./cookbook.css",
   "./cookbook-units.js",
+  "./cookbook-timer.js",
   "./cookbook-data.js",
   "./cookbook-clip.js",
   "./cookbook-ui.js",

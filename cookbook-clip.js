@@ -104,7 +104,7 @@ Rules that matter:
   // trust model as the Firebase session, no proxy of ours in between.
   async function callClaude(content) {
     const key = Data.creds().anthropic;
-    if (!key) throw new Error("This needs an Anthropic API key. Add one under settings ⚙ — or use a website URL, which doesn't need one.");
+    if (!key) throw new Error("This needs an Anthropic API key. Add one under Settings — or use a website URL, which doesn't need one.");
 
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -128,7 +128,7 @@ Rules that matter:
 
     if (!r.ok) {
       const t = await r.text().catch(() => "");
-      if (r.status === 401) throw new Error("Anthropic rejected the API key (401). Check it under settings ⚙.");
+      if (r.status === 401) throw new Error("Anthropic rejected the API key (401). Check it under Settings.");
       if (r.status === 429) throw new Error("Rate limited by Anthropic (429). Wait a moment and try again.");
       throw new Error(`Anthropic returned ${r.status}. ${t.slice(0, 200)}`);
     }

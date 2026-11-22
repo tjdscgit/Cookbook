@@ -121,7 +121,7 @@
         }
 
         const add = document.createElement("button");
-        add.textContent = "＋";
+        add.textContent = "+";
         add.title = `Add a ${meal.toLowerCase()}`;
         add.style.cssText = `width:26px;height:26px;border-radius:50%;border:1px dashed var(--line);
           color:var(--ink-faint);font-size:14px;line-height:1;`;
@@ -158,7 +158,6 @@
 
     if (!list || !list.items || !list.items.length) {
       el.innerHTML = `<div class="empty">
-        <div class="mark">🛒</div>
         <h3>Nothing on the list</h3>
         <p>Plan some meals for the week, then use “Make shopping list” — or add items by hand above.</p>
       </div>`;

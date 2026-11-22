@@ -42,11 +42,13 @@ installs to a phone or desktop home screen from there and works offline for read
 
 ```bash
 node cookbook-units.test.js
+node cookbook-timer.test.js
 ```
 
-Covers the scaling engine: fraction parsing and formatting, ingredient parsing, serving scaling,
-non-scaling amounts, and shopping-list aggregation. No test framework — deliberately, so it stays
-runnable with nothing installed.
+The first covers the scaling engine: fraction parsing and formatting, ingredient parsing, serving
+scaling, non-scaling amounts, and shopping-list aggregation. The second covers cook mode's timer
+parser ("1 1/2 minutes", "2 to 3 minutes", "45 seconds", ...). No test framework — deliberately, so
+they stay runnable with nothing installed.
 
 ## Regenerating the icons
 
@@ -63,6 +65,7 @@ Writes real PNGs with no dependencies. Edit the two hex constants at the top to 
 | `index.html` | App shell and all markup |
 | `cookbook.css` | Theming (light + dark) and layout |
 | `cookbook-units.js` | Ingredient parsing, serving scaling, shopping-list aggregation |
+| `cookbook-timer.js` | Finds a cooking time in a method step for cook mode's timer |
 | `cookbook-data.js` | The only file that knows Firestore exists |
 | `firestore.rules` | Security rules — paste into the Firebase console |
 | `cookbook-clip.js` | Clipping from websites, photos and pasted text |

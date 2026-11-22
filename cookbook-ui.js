@@ -5,6 +5,9 @@
 // and never call back into it except through the callbacks it hands them. `render()` repaints the
 // current view from state — there is no partial DOM patching anywhere, because a cookbook's data is
 // small enough that a full repaint is instant and always correct.
+//
+// The Recipes list, recipe page and cook mode emit the markup of design/cookbook-redesign.html
+// (#rc, #rd, #dk, #ck) so its CSS applies unchanged.
 (function () {
   "use strict";
 
@@ -12,9 +15,13 @@
   const Data = window.CookbookData;
   const Clip = window.CookbookClip;
   const Plan = window.CookbookPlan;
+  const Timer = window.CookbookTimer;
 
   const $ = (sel) => document.querySelector(sel);
   const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+
+  // Phone shell up to 800px, sidenav desktop above it (brief, Part A).
+  const desk = window.matchMedia("(min-width: 801px)");
 
   // ---------------------------------------------------------------------------
   // State
@@ -24,14 +31,16 @@
     recipes: [],
     collections: [],
     recipesById: {},
-    // filters
-    section: "cookbook",  // "cookbook" (tried) or "toTry" (not yet tried) — always starts here, never remembered
+    // Recipes screen
+    section: "cookbook",  // "cookbook" (tried), "toTry" (not yet tried) or "cols" — always starts on Cookbook, never remembered
     search: "",
-    collectionId: null,
-    favOnly: false,
-    // detail
+    chip: null,           // "fav", "u30", a collection id, or null. Single-select.
+    // recipe page
     openId: null,
     servings: null,       // the working serving count, which may differ from the recipe's own
+    detailTab: "ing",     // "ing" or "met" (phone only; desktop shows both)
+    ticked: {},           // recipeId -> Set of ticked ingredient ids. Session only, never saved.
+    awake: true,          // "Keep screen on" switch
     // editor
     editing: null,        // the recipe object being edited (null = not open)
     // planner
@@ -53,12 +62,12 @@
     wireNav();
     wireSettings();
     wireRecipes();
+    wireDetail();
     wireEditor();
     wireClip();
     consumeSharedLink();
     wirePlanner();
     wireShopping();
-    wireCollections();
     wireWakeLock();
 
     if ("serviceWorker" in navigator) {
@@ -70,6 +79,7 @@
       setView("recipes");
       return;
     }
+    setView("recipes");
     await Data.pullAnthropicKey().catch(() => {});
     await refresh();
   }
@@ -99,16 +109,28 @@
     $$("[data-view]").forEach((btn) => {
       btn.onclick = () => setView(btn.dataset.view);
     });
-    $("#navTheme").onclick = toggleTheme;
     $("#navSettings").onclick = openSettings;
-    $("#navSettingsM").onclick = openSettings;
     $("#bannerSettings").onclick = openSettings;
-    $("#btnBack").onclick = () => setView("recipes");
+    $("#btnRecipesMore").onclick = recipesMenu;
+    // "+ Add recipe" opens the existing clipper until the Add recipe sheet (a later stage) exists.
+    $("#btnAdd").onclick = openClip;
 
     // Dialogs all close the same way.
     $$("[data-close]").forEach((b) => {
       b.onclick = () => b.closest("dialog").close();
     });
+
+    // Escape closes an open bottom sheet before anything else sees the key.
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && document.querySelector(".sheet")) { e.stopImmediatePropagation(); closeSheet(); }
+    }, true);
+
+    // A photo that fails to load drops out, leaving the letter placeholder underneath.
+    document.addEventListener("error", (e) => {
+      if (e.target.tagName === "IMG" && e.target.closest(".ph")) e.target.remove();
+    }, true);
+
+    desk.addEventListener("change", () => { if (S.view === "recipe") renderDetail(); });
   }
 
   // ---------------------------------------------------------------------------
@@ -116,9 +138,11 @@
   // ---------------------------------------------------------------------------
   // Keeps the screen on everywhere in the app, not just Cook Mode — this is a kitchen tablet/phone
   // sitting on a bench, and it locking mid-shop or mid-browse is just as annoying as mid-recipe.
+  // The recipe page's "Keep screen on" switch turns that off (cook mode still holds it while open).
   // The lock is released by the browser whenever the tab is backgrounded, so it has to be
   // re-requested every time the app becomes visible again, or the screen goes back to sleeping.
   let wakeLock = null;
+  let cookOpen = false;
 
   function wireWakeLock() {
     requestWakeLock();
@@ -128,9 +152,19 @@
   }
 
   async function requestWakeLock() {
-    if (!("wakeLock" in navigator)) return;
+    if (!("wakeLock" in navigator) || !(S.awake || cookOpen)) return;
+    if (wakeLock && !wakeLock.released) return;
     try { wakeLock = await navigator.wakeLock.request("screen"); }
     catch { /* denied or unsupported — the app still works, the screen just sleeps normally */ }
+  }
+
+  function releaseWakeLock() {
+    if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
+  }
+
+  function setAwake(on) {
+    S.awake = on;
+    if (on || cookOpen) requestWakeLock(); else releaseWakeLock();
   }
 
   function setView(view) {
@@ -141,37 +175,59 @@
     $("#viewRecipe").hidden = view !== "recipe";
     $("#viewPlanner").hidden = view !== "planner";
     $("#viewShopping").hidden = view !== "shopping";
-    $("#viewCollections").hidden = view !== "collections";
+    $("#btnAdd").hidden = view !== "recipes";
 
-    // The detail view is a child of Recipes as far as the nav is concerned.
+    // The recipe page is a child of Recipes as far as the nav is concerned.
     const navKey = view === "recipe" ? "recipes" : view;
-    $$("[data-view]").forEach((b) => b.setAttribute("aria-current", String(b.dataset.view === navKey)));
+    $$("[data-view]").forEach((b) => {
+      const on = b.dataset.view === navKey;
+      b.classList.toggle("on", on);
+      b.setAttribute("aria-current", String(on));
+    });
 
-    window.scrollTo(0, 0);
+    $("#main").scrollTop = 0;
     render();
   }
 
   function render() {
-    if (S.view === "recipes") renderGrid();
+    if (S.view === "recipes") renderRecipes();
     else if (S.view === "recipe") renderDetail();
     else if (S.view === "planner") renderPlannerView();
     else if (S.view === "shopping") renderShoppingView();
-    else if (S.view === "collections") renderCollections();
   }
 
   // ---------------------------------------------------------------------------
-  // Theme
+  // Theme: Light, Dark or System (no stored choice). Lives in the Recipes ⋯ sheet.
   // ---------------------------------------------------------------------------
-  function applyStoredTheme() {
+  const darkQuery = window.matchMedia("(prefers-color-scheme: dark)");
+  darkQuery.addEventListener("change", () => { if (themeSetting() === "system") applyStoredTheme(); });
+
+  function themeSetting() {
     const saved = localStorage.getItem("cookbook_theme");
-    const dark = saved ? saved === "dark"
-      : window.matchMedia("(prefers-color-scheme: dark)").matches;
+    return saved === "dark" || saved === "light" ? saved : "system";
+  }
+  function applyStoredTheme() {
+    const s = themeSetting();
+    const dark = s === "system" ? darkQuery.matches : s === "dark";
     document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
   }
-  function toggleTheme() {
-    const dark = document.documentElement.getAttribute("data-theme") === "dark";
-    document.documentElement.setAttribute("data-theme", dark ? "light" : "dark");
-    localStorage.setItem("cookbook_theme", dark ? "light" : "dark");
+  function cycleTheme() {
+    const next = { light: "dark", dark: "system", system: "light" }[themeSetting()];
+    if (next === "system") localStorage.removeItem("cookbook_theme");
+    else localStorage.setItem("cookbook_theme", next);
+    applyStoredTheme();
+  }
+  function themeLabel() {
+    return { light: "Light", dark: "Dark", system: "System" }[themeSetting()];
+  }
+
+  function recipesMenu() {
+    openSheet(`<div class="sh-h"><h3>Cookbook</h3><button class="ib" data-x aria-label="Close">✕</button></div>
+      <div class="sh-b"><button class="mitem" data-settings>Settings<small>Firebase, sign-in, Anthropic key, measurements, import</small></button><button class="mitem" data-theme-cycle>Theme<small>${themeLabel()}</small></button></div>`,
+      (b) => {
+        if ("settings" in b.dataset) { closeSheet(); openSettings(); }
+        else if ("themeCycle" in b.dataset) { cycleTheme(); closeSheet(); }
+      });
   }
 
   // ---------------------------------------------------------------------------
@@ -351,34 +407,90 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Recipe grid
+  // Recipe helpers shared by the list, the page and cook mode
+  // ---------------------------------------------------------------------------
+  const totalMins = (r) => (r.prepMinutes || 0) + (r.cookMinutes || 0);
+  // 25 -> "25 min", 65 -> "1 hr 5", 210 -> "3 hr 30", 120 -> "2 hr"
+  const timeLabel = (m) => !m ? "" : m < 60 ? `${m} min` : (m % 60 ? `${Math.floor(m / 60)} hr ${m % 60}` : `${m / 60} hr`);
+
+  function hostOf(url) {
+    try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return ""; }
+  }
+  // What a card and the recipe page say the recipe came from.
+  function sourceLabel(r) {
+    const h = hostOf(r.sourceUrl);
+    if (/(^|\.)instagram\.com$/.test(h)) return "Instagram";
+    if (/(^|\.)tiktok\.com$/.test(h)) return "TikTok";
+    if (/(^|\.)youtube\.com$|^youtu\.be$/.test(h)) return "YouTube";
+    if (r.sourceType === "Photo") return "From a photo";
+    return h || "Your recipe";
+  }
+
+  // The inside of a .ph photo box: the first letter, covered by the photo when there is one.
+  function phInner(r, full) {
+    const url = full ? (r.photoUrl || r.photoThumb) : (r.photoThumb || r.photoUrl);
+    const letter = (String(r.name || "").trim()[0] || "").toUpperCase();
+    return `<span class="ltr">${escapeHtml(letter)}</span>${url ? `<img src="${escapeAttr(url)}" alt="" loading="lazy">` : ""}`;
+  }
+
+  function collectionNames(r) {
+    return S.collections.filter((c) => (r.collectionIds || []).includes(c.id)).map((c) => c.name);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Recipes screen (#rc)
   // ---------------------------------------------------------------------------
   function wireRecipes() {
-    $("#search").oninput = (e) => { S.search = e.target.value.toLowerCase(); renderGrid(); };
-    $("#filterFav").onclick = (e) => {
-      S.favOnly = !S.favOnly;
-      e.currentTarget.setAttribute("aria-pressed", String(S.favOnly));
-      renderGrid();
+    $("#search").oninput = (e) => {
+      S.search = e.target.value.trim().toLowerCase();
+      if (S.section === "cols") S.section = "cookbook";
+      renderRecipes();
     };
     // Switching tabs while the app is open is fine to keep in memory (S.section), but it's
     // deliberately never written to localStorage — a reload or a fresh app-switch launch should
     // always land on Cookbook, not wherever you happened to leave off.
-    $("#tabCookbook").onclick = () => { S.section = "cookbook"; renderGrid(); };
-    $("#tabToTry").onclick = () => { S.section = "toTry"; renderGrid(); };
-    $("#btnNew").onclick = () => openEditor(blankRecipe());
-    $("#btnClip").onclick = openClip;
+    $("#sectionTabs").onclick = (e) => {
+      const b = e.target.closest("[data-tab]");
+      if (!b) return;
+      S.section = b.dataset.tab;
+      S.chip = null;
+      renderRecipes();
+    };
+    $("#recipesBody").onclick = (e) => {
+      const b = e.target.closest("button");
+      if (!b) return;
+      const d = b.dataset;
+      if (d.chip) { S.chip = S.chip === d.chip ? null : d.chip; renderRecipes(); }
+      else if (d.open) openRecipe(d.open);
+      else if (d.col) { S.section = "cookbook"; S.chip = d.col; renderRecipes(); $("#main").scrollTop = 0; }
+      else if ("newcol" in d) newCollection();
+    };
+    $("#btnNew").onclick = () => { $("#dlgClip").close(); openEditor(blankRecipe()); };
+  }
+
+  const inSection = (r) => (S.section === "toTry" ? !r.tried : r.tried);
+
+  // Faves, Under 30 min, then every collection. Counts reflect the current tab.
+  function chipDefs() {
+    return [
+      ["fav", "Faves", (r) => r.favourite],
+      ["u30", "Under 30 min", (r) => { const m = totalMins(r); return m > 0 && m <= 30; }],
+      ...S.collections.map((c) => [c.id, c.name, (r) => (r.collectionIds || []).includes(c.id)]),
+    ];
   }
 
   function visibleRecipes() {
+    const chip = chipDefs().find((c) => c[0] === S.chip);
     return S.recipes.filter((r) => {
-      if (S.section === "cookbook" ? !r.tried : r.tried) return false;
-      if (S.favOnly && !r.favourite) return false;
-      if (S.collectionId && !(r.collectionIds || []).includes(S.collectionId)) return false;
+      if (!inSection(r)) return false;
+      if (chip && !chip[2](r)) return false;
       if (S.search) {
-        // Ingredients are searched too, so "what can I do with haloumi" works.
+        // Ingredients, collections and the source site are searched too, so "what can I do with
+        // haloumi" and "recipetineats" both work.
         const hay = [
           r.name, r.description, (r.tags || []).join(" "),
           (r.ingredients || []).map((i) => i.item).join(" "),
+          collectionNames(r).join(" "), hostOf(r.sourceUrl), sourceLabel(r),
         ].join(" ").toLowerCase();
         if (!hay.includes(S.search)) return false;
       }
@@ -386,285 +498,65 @@
     });
   }
 
-  function renderGrid() {
-    renderCollectionChips();
-    $("#tabCookbook").setAttribute("aria-pressed", String(S.section === "cookbook"));
-    $("#tabToTry").setAttribute("aria-pressed", String(S.section === "toTry"));
-
-    const list = visibleRecipes();
-    const sectionTotal = S.recipes.filter((r) => (S.section === "cookbook" ? r.tried : !r.tried)).length;
-    const grid = $("#recipeGrid");
-    grid.innerHTML = "";
-
-    $("#recipeCount").textContent = S.loaded
-      ? `${sectionTotal} recipe${sectionTotal === 1 ? "" : "s"}${list.length !== sectionTotal ? ` · ${list.length} shown` : ""}`
-      : "";
-
-    $("#recipeEmpty").hidden = list.length > 0 || !S.loaded;
-    if (S.loaded && !list.length) {
-      if (S.section === "cookbook") {
-        $("#recipeEmptyTitle").textContent = "Nothing tried yet";
-        $("#recipeEmptyBody").textContent = "Recipes move here once you mark them as tried from the To Try list.";
-      } else {
-        $("#recipeEmptyTitle").textContent = "No recipes yet";
-        $("#recipeEmptyBody").textContent = "Clip one from a website or photo, or write one in by hand.";
-      }
-    }
-    if (!list.length) return;
-
-    for (const r of list) {
-      const card = document.createElement("div");
-      card.className = "card";
-
-      const open = document.createElement("button");
-      open.style.cssText = "display:block;text-align:left;width:100%;";
-
-      const thumb = document.createElement("div");
-      thumb.className = "thumb";
-      if (r.photoThumb) thumb.style.backgroundImage = `url("${cssUrl(r.photoThumb)}")`;
-      else thumb.textContent = "🍽️";
-      open.appendChild(thumb);
-
-      const body = document.createElement("div");
-      body.className = "body";
-      const title = document.createElement("div");
-      title.className = "title";
-      title.textContent = r.name;
-      body.appendChild(title);
-
-      const meta = document.createElement("div");
-      meta.className = "meta";
-      const bits = [];
-      bits.push(`${r.servings} ${r.servingUnit}`);
-      const total = (r.prepMinutes || 0) + (r.cookMinutes || 0);
-      if (total) bits.push(`${total} min`);
-      if (r.steps && r.steps.length) bits.push(`${r.steps.length} steps`);
-      meta.textContent = bits.join(" · ");
-      body.appendChild(meta);
-      open.appendChild(body);
-
-      open.onclick = () => openRecipe(r.id);
-      card.appendChild(open);
-
-      const star = document.createElement("button");
-      star.className = "star";
-      star.textContent = r.favourite ? "★" : "☆";
-      star.setAttribute("aria-pressed", String(Boolean(r.favourite)));
-      star.title = r.favourite ? "Remove from favourites" : "Add to favourites";
-      star.onclick = async (e) => {
-        e.stopPropagation();
-        // Flip locally first so the star responds instantly; roll back if the write fails.
-        const was = r.favourite;
-        r.favourite = !was;
-        renderGrid();
-        try { await Data.setFavourite(r.id, r.favourite); }
-        catch (err) { r.favourite = was; renderGrid(); toastError(err.message); }
-      };
-      card.appendChild(star);
-
-      const tried = document.createElement("button");
-      tried.className = "tried";
-      tried.textContent = r.tried ? "✓" : "🔖";
-      tried.setAttribute("aria-pressed", String(Boolean(r.tried)));
-      tried.title = r.tried ? "Move back to To Try" : "Mark as tried (move to Cookbook)";
-      tried.onclick = async (e) => {
-        e.stopPropagation();
-        const was = r.tried;
-        r.tried = !was;
-        renderGrid();
-        try { await Data.setTried(r.id, r.tried); }
-        catch (err) { r.tried = was; renderGrid(); toastError(err.message); }
-      };
-      card.appendChild(tried);
-
-      grid.appendChild(card);
-    }
+  function cardHtml(r) {
+    const t = timeLabel(totalMins(r));
+    return `<button class="card" data-open="${escapeAttr(r.id)}"><div class="ph">${phInner(r)}${t ? `<span class="badge">${t}</span>` : ""}${r.favourite ? '<span class="favdot">★</span>' : ""}</div><div class="cn">${escapeHtml(r.name)}</div><div class="cs">${escapeHtml(sourceLabel(r))}</div></button>`;
   }
 
-  function renderCollectionChips() {
-    const el = $("#collectionChips");
-    el.innerHTML = "";
-    if (!S.collections.length) return;
+  function renderRecipes() {
+    const nCook = S.recipes.filter((r) => r.tried).length;
+    $("#nCookbook").textContent = S.loaded ? nCook : "";
+    $("#nToTry").textContent = S.loaded ? S.recipes.length - nCook : "";
+    $$("#sectionTabs .utab").forEach((b) => b.classList.toggle("on", b.dataset.tab === S.section));
 
-    const all = document.createElement("button");
-    all.className = "chip";
-    all.textContent = "All";
-    all.setAttribute("aria-pressed", String(!S.collectionId));
-    all.onclick = () => { S.collectionId = null; renderGrid(); };
-    el.appendChild(all);
-
-    for (const c of S.collections) {
-      const b = document.createElement("button");
-      b.className = "chip";
-      b.textContent = `${c.emoji ? c.emoji + " " : ""}${c.name}`;
-      b.setAttribute("aria-pressed", String(S.collectionId === c.id));
-      b.onclick = () => { S.collectionId = S.collectionId === c.id ? null : c.id; renderGrid(); };
-      el.appendChild(b);
+    const body = $("#recipesBody");
+    if (S.section === "cols") {
+      const rows = [{ id: "fav", name: "Faves", list: S.recipes.filter((r) => r.favourite) }]
+        .concat(S.collections.map((c) => ({ id: c.id, name: c.name, list: S.recipes.filter((r) => (r.collectionIds || []).includes(c.id)) })));
+      body.innerHTML = rows.map((c) => `<button class="crow" data-col="${escapeAttr(c.id)}"><div class="stack">${c.list.slice(0, 3).map((r) => `<div class="ph">${phInner(r)}</div>`).join("")}</div><div><b>${escapeHtml(c.name)}</b><small>${c.list.length} recipe${c.list.length === 1 ? "" : "s"}</small></div><span class="chev">›</span></button>`).join("")
+        + `<button class="crow" data-newcol><div><b class="new">+ New collection</b></div></button><div class="crowpad"></div>`;
+      return;
     }
+
+    const defs = chipDefs();
+    const list = visibleRecipes();
+    let empty = "";
+    if (S.loaded && !list.length) {
+      const chip = defs.find((c) => c[0] === S.chip);
+      if (S.search) empty = `No recipes match “${escapeHtml($("#search").value.trim())}”`;
+      else if (chip) empty = `No recipes match “${escapeHtml(chip[1])}”`;
+      else if (S.section === "cookbook") empty = "Nothing tried yet. Recipes move here once you mark them as cooked.";
+      else empty = "No recipes yet. Clip one from a website or photo, or write one in by hand.";
+    }
+    body.innerHTML = `<div class="chiprow">${defs.map(([id, label, pred]) => `<button class="chip ${S.chip === id ? "on" : ""}" data-chip="${escapeAttr(id)}">${escapeHtml(label)}<span>${S.recipes.filter((r) => inSection(r) && pred(r)).length}</span></button>`).join("")}</div>
+      <div class="grid">${list.map(cardHtml).join("")}${empty ? `<div class="noresult">${empty}</div>` : ""}</div>`;
+  }
+
+  async function newCollection() {
+    const name = prompt("Collection name (e.g. Weeknight dinners):");
+    if (!name || !name.trim()) return;
+    try {
+      await Data.createCollection(name.trim(), "", S.collections.length);
+      await refresh();
+      toast("Collection created");
+    } catch (e) { toastError(e.message); }
   }
 
   // ---------------------------------------------------------------------------
-  // Recipe detail — the servings stepper and per-step ingredients
+  // Recipe page (#rd on the phone, #dk on the desktop)
   // ---------------------------------------------------------------------------
   function openRecipe(id) {
     S.openId = id;
     const r = S.recipesById[id];
     S.servings = r ? r.servings : 1;
+    S.detailTab = "ing";
     setView("recipe");
   }
 
-  function renderDetail() {
-    const r = S.recipesById[S.openId];
-    const el = $("#recipeDetail");
-    if (!r) { el.innerHTML = '<div class="empty"><h3>Recipe not found</h3></div>'; return; }
+  function tickSet(id) { return S.ticked[id] || (S.ticked[id] = new Set()); }
 
-    const factor = (S.servings || r.servings) / (r.servings || 1);
-    const scaled = Units.scaleIngredients(r.ingredients, factor);
-    const byId = Object.fromEntries(scaled.map((i) => [i.id, i]));
-
-    el.innerHTML = "";
-
-    if (r.photoUrl) {
-      const img = document.createElement("img");
-      img.className = "hero";
-      img.src = r.photoUrl;
-      img.alt = "";
-      el.appendChild(img);
-    }
-
-    const h1 = document.createElement("h1");
-    h1.textContent = r.name;
-    el.appendChild(h1);
-
-    if (r.description) {
-      const p = document.createElement("p");
-      p.className = "lede";
-      p.textContent = r.description;
-      el.appendChild(p);
-    }
-
-    // Facts + actions
-    const bar = document.createElement("div");
-    bar.className = "factbar";
-    const facts = [];
-    if (r.prepMinutes) facts.push(`Prep <b>${r.prepMinutes} min</b>`);
-    if (r.cookMinutes) facts.push(`Cook <b>${r.cookMinutes} min</b>`);
-    if (r.sourceUrl) facts.push(`<a href="${escapeAttr(r.sourceUrl)}" target="_blank" rel="noopener">Source ↗</a>`);
-    bar.innerHTML = facts.join("");
-    const spacer = document.createElement("span");
-    spacer.style.marginLeft = "auto";
-    bar.appendChild(spacer);
-    bar.appendChild(makeBtn("✏️ Edit", "btn ghost sm", () => openEditor(deepCopy(r))));
-    bar.appendChild(makeBtn("👩‍🍳 Cook", "btn primary sm", () => openCookMode(r, factor)));
-    el.appendChild(bar);
-
-    // Servings stepper
-    const sv = document.createElement("div");
-    sv.className = "servings";
-    const lbl = document.createElement("span");
-    lbl.className = "lbl";
-    lbl.textContent = "Makes";
-    sv.appendChild(lbl);
-
-    const stepper = document.createElement("div");
-    stepper.className = "stepper";
-    stepper.appendChild(makeBtn("−", "", () => setServings((S.servings || r.servings) - 1)));
-    const val = document.createElement("span");
-    val.className = "val";
-    val.textContent = `${S.servings} ${r.servingUnit}`;
-    stepper.appendChild(val);
-    stepper.appendChild(makeBtn("+", "", () => setServings((S.servings || r.servings) + 1)));
-    sv.appendChild(stepper);
-
-    if (S.servings !== r.servings) {
-      const reset = makeBtn(`Reset to ${r.servings}`, "btn ghost sm reset", () => setServings(r.servings));
-      sv.appendChild(reset);
-      // Cooking times don't scale with quantity, so say so rather than let the numbers imply it.
-      if (r.cookMinutes) {
-        const warn = document.createElement("div");
-        warn.style.cssText = "flex-basis:100%;font-size:12.5px;color:var(--ink-soft);";
-        warn.textContent = "Amounts are scaled. Cooking times usually aren't — check as you go.";
-        sv.appendChild(warn);
-      }
-    }
-    el.appendChild(sv);
-
-    // Ingredients, grouped if the recipe has sub-sections
-    el.appendChild(makeH2("Ingredients"));
-    const groups = groupBy(scaled, (i) => i.group || "");
-    for (const [group, items] of groups) {
-      if (group) el.appendChild(makeGroupHead(group));
-      const ul = document.createElement("ul");
-      ul.className = "inglist";
-      for (const ing of items) {
-        const li = document.createElement("li");
-        const amt = document.createElement("span");
-        amt.className = "amt";
-        amt.textContent = amountText(ing);
-        li.appendChild(amt);
-        const nm = document.createElement("span");
-        nm.className = "nm";
-        nm.textContent = ing.item;
-        if (ing.note) {
-          const nt = document.createElement("span");
-          nt.className = "nt";
-          nt.textContent = `, ${ing.note}`;
-          nm.appendChild(nt);
-        }
-        li.appendChild(nm);
-        ul.appendChild(li);
-      }
-      el.appendChild(ul);
-    }
-
-    // Method — each step carries its own ingredients at the scaled amounts
-    el.appendChild(makeH2("Method"));
-    const stepGroups = groupBy(r.steps, (s) => s.group || "");
-    for (const [group, steps] of stepGroups) {
-      if (group) el.appendChild(makeGroupHead(group));
-      const ol = document.createElement("ol");
-      ol.className = "steps";
-      for (const st of steps) {
-        const li = document.createElement("li");
-        const txt = document.createElement("div");
-        txt.className = "txt";
-        txt.textContent = st.text;
-        li.appendChild(txt);
-        const pills = stepIngredientPills(st, byId);
-        if (pills) li.appendChild(pills);
-        ol.appendChild(li);
-      }
-      el.appendChild(ol);
-    }
-
-    if (r.notes) {
-      el.appendChild(makeH2("Notes"));
-      const box = document.createElement("div");
-      box.className = "notebox";
-      box.textContent = r.notes;
-      el.appendChild(box);
-    }
-  }
-
-  // The feature the whole app is built around: the amounts for a step, shown at the step.
-  function stepIngredientPills(step, byId) {
-    const ids = step.ingredientIds || [];
-    if (!ids.length) return null;
-    const wrap = document.createElement("div");
-    wrap.className = "stepings";
-    for (const id of ids) {
-      const ing = byId[id];
-      if (!ing) continue;   // a stale id from a hand-edited JSON field shouldn't render an empty pill
-      const pill = document.createElement("span");
-      pill.className = "pill";
-      const amt = amountText(ing);
-      // The gap between amount and name is a text node, not CSS: the pill is inline-flex, so
-      // trailing whitespace inside the <b> would be collapsed away and the two would run together.
-      if (amt) { const b = document.createElement("b"); b.textContent = amt; pill.appendChild(b); }
-      pill.appendChild(document.createTextNode(amt ? " " + ing.item : ing.item));
-      wrap.appendChild(pill);
-    }
-    return wrap.children.length ? wrap : null;
+  function scaledFor(r) {
+    return Units.scaleIngredients(r.ingredients, (S.servings || r.servings) / (r.servings || 1));
   }
 
   function amountText(ing) {
@@ -676,89 +568,402 @@
     return `${q}${u ? " " + u : ""}${ing.altText ? " / " + ing.altText : ""}`;
   }
 
+  function ingRowsHtml(r, scaled) {
+    const ticks = tickSet(r.id);
+    let html = "";
+    for (const [group, items] of groupBy(scaled, (i) => i.group || "")) {
+      if (group) html += `<div class="lbl ghead">${escapeHtml(group)}</div>`;
+      for (const g of items) {
+        const a = amountText(g);
+        html += `<button class="ingrow ${ticks.has(g.id) ? "done" : ""}" data-tick="${escapeAttr(g.id)}"><span class="ck">✓</span><span class="it">${a ? `<b>${escapeHtml(a)}</b> ` : ""}${escapeHtml(g.item)}${g.note ? `<small>${escapeHtml(g.note)}</small>` : ""}</span></button>`;
+      }
+    }
+    return html;
+  }
+
+  // The feature the whole app is built around: each step carries its own ingredients and amounts.
+  function stepRowsHtml(r, byId) {
+    let n = 0, html = "";
+    for (const [group, steps] of groupBy(r.steps, (s) => s.group || "")) {
+      if (group) html += `<div class="lbl ghead">${escapeHtml(group)}</div>`;
+      for (const st of steps) {
+        n++;
+        // A stale id from a hand-edited document shouldn't render an empty pill.
+        const ings = (st.ingredientIds || []).map((id) => byId[id]).filter(Boolean);
+        const pills = ings.length ? `<div class="pills">${ings.map((g) => { const a = amountText(g); return `<span class="pill">${a ? `<b>${escapeHtml(a)}</b> ` : ""}${escapeHtml(g.item)}</span>`; }).join("")}</div>` : "";
+        html += `<div class="step"><span class="sn">${n}</span><div><div class="stx">${escapeHtml(st.text)}</div>${pills}</div></div>`;
+      }
+    }
+    return html;
+  }
+
+  function srcHtml(r) {
+    const label = escapeHtml(sourceLabel(r));
+    return r.sourceUrl
+      ? `<a class="src" href="${escapeAttr(r.sourceUrl)}" target="_blank" rel="noopener">${label} ↗</a>`
+      : `<span class="src">${label}</span>`;
+  }
+
+  function metaText(r) {
+    const bits = [];
+    if (r.prepMinutes) bits.push(`${r.prepMinutes} min prep`);
+    if (r.cookMinutes) bits.push(`${r.cookMinutes} min cook`);
+    const n = (r.ingredients || []).length;
+    if (n) bits.push(`${n} ingredient${n === 1 ? "" : "s"}`);
+    return bits.join(" · ");
+  }
+
+  function stepperHtml(val, key) {
+    return `<div class="stp"><button data-${key}="-1" aria-label="Fewer">−</button><b>${val}</b><button data-${key}="1" aria-label="More">+</button></div>`;
+  }
+
+  function servRowHtml(r) {
+    const changed = S.servings !== r.servings;
+    // Cooking times don't scale with quantity, so say so rather than let the numbers imply it.
+    return `<div class="servrow"><span class="k">Serves</span>${changed ? '<button class="reset" data-reset>Reset</button>' : ""}${stepperHtml(S.servings, "sv")}</div>${changed && r.cookMinutes ? '<p class="scalenote">Amounts are scaled. Cooking times usually aren\'t.</p>' : ""}`;
+  }
+
+  const awakeHtml = () => `<button class="awake" data-awake><span>Keep screen on</span><span class="sw ${S.awake ? "on" : ""}"></span></button>`;
+  const notesHtml = (r) => r.notes ? `<div class="notesbox"><div class="lbl">Your notes</div><p>${escapeHtml(r.notes)}</p></div>` : "";
+
+  function renderDetail() {
+    const el = $("#viewRecipe");
+    const r = S.recipesById[S.openId];
+    if (!r) { el.innerHTML = '<p class="noresult">Recipe not found</p>'; return; }
+
+    const scaled = scaledFor(r);
+    const byId = Object.fromEntries(scaled.map((i) => [i.id, i]));
+    const main = $("#main");
+    const top = main.scrollTop;
+
+    if (desk.matches) {
+      el.innerHTML = `<div class="dk"><div class="inner">
+        <button class="crumb" data-back>‹ Recipes</button>
+        <div class="dkacts"><button class="ib fav ${r.favourite ? "on" : ""}" data-fav aria-label="Favourite">★</button><button class="ib" data-more aria-label="More">⋯</button></div>
+        <div class="tophalf"><div>
+          ${srcHtml(r)}
+          <h1 class="dt">${escapeHtml(r.name)}</h1>
+          <div class="meta">${metaText(r)}</div>
+          <div class="acts"><button class="btn" data-cook>Start cooking</button><button class="btn soft" data-plan>Add to plan</button><button class="btn soft" data-shop>Shopping list</button></div>
+        </div><div class="ph">${phInner(r, true)}</div></div>
+        <div class="lower">
+          <div><h4>Method</h4>${awakeHtml()}${stepRowsHtml(r, byId)}${notesHtml(r)}</div>
+          <div class="ingcol"><h4>Ingredients</h4>${servRowHtml(r)}${ingRowsHtml(r, scaled)}</div>
+        </div>
+      </div></div>`;
+    } else {
+      el.innerHTML = `<div class="hero"><div class="ph">${phInner(r, true)}</div><button class="ov l" data-back aria-label="Back">‹</button><button class="ov r1 fav ${r.favourite ? "on" : ""}" data-fav aria-label="Favourite">★</button><button class="ov r2" data-more aria-label="More">⋯</button></div>
+        <div class="dsheet">
+          ${srcHtml(r)}
+          <h1 class="dt">${escapeHtml(r.name)}</h1>
+          <div class="meta">${metaText(r)}</div>
+          <button class="btn cookbtn" data-cook>Start cooking</button>
+          <div class="pair"><button class="btn soft" data-plan>Add to plan</button><button class="btn soft" data-shop>Shopping list</button></div>
+          ${servRowHtml(r)}
+          <div class="seg"><button class="${S.detailTab === "ing" ? "on" : ""}" data-seg="ing">Ingredients</button><button class="${S.detailTab === "met" ? "on" : ""}" data-seg="met">Method</button></div>
+          ${S.detailTab === "ing" ? ingRowsHtml(r, scaled) : awakeHtml() + stepRowsHtml(r, byId)}
+          ${notesHtml(r)}
+        </div>`;
+    }
+    main.scrollTop = top;
+  }
+
+  function wireDetail() {
+    $("#viewRecipe").onclick = (e) => {
+      const b = e.target.closest("button");
+      const r = S.recipesById[S.openId];
+      if (!b || !r) return;
+      const d = b.dataset;
+      if (d.sv) setServings(S.servings + Number(d.sv));
+      else if ("reset" in d) setServings(r.servings);
+      else if (d.seg) { S.detailTab = d.seg; renderDetail(); }
+      else if (d.tick) { toggleTick(r.id, d.tick); renderDetail(); }
+      else if ("awake" in d) { setAwake(!S.awake); renderDetail(); }
+      else if ("fav" in d) toggleFavourite(r);
+      else if ("cook" in d) openCookMode(r);
+      else if ("plan" in d) planSheet(r);
+      else if ("shop" in d) addToShoppingList(r);
+      else if ("more" in d) recipeMenu(r);
+      else if ("back" in d) setView("recipes");
+    };
+  }
+
+  function toggleTick(recipeId, ingId) {
+    const t = tickSet(recipeId);
+    if (t.has(ingId)) t.delete(ingId); else t.add(ingId);
+  }
+
   function setServings(n) {
     S.servings = Math.max(1, Math.round(n));
     renderDetail();
   }
 
-  // ---------------------------------------------------------------------------
-  // Cook mode
-  // ---------------------------------------------------------------------------
-  async function openCookMode(recipe, factor) {
-    const scaled = Units.scaleIngredients(recipe.ingredients, factor);
-    const byId = Object.fromEntries(scaled.map((i) => [i.id, i]));
-    const steps = recipe.steps.length ? recipe.steps : [{ id: "s1", text: "No method recorded.", ingredientIds: [] }];
-    let idx = 0;
-    const done = new Set();
+  async function toggleFavourite(r) {
+    // Flip locally first so the star responds instantly; roll back if the write fails.
+    const was = r.favourite;
+    r.favourite = !was;
+    renderDetail();
+    toast(r.favourite ? "Added to Faves" : "Removed from Faves");
+    try { await Data.setFavourite(r.id, r.favourite); }
+    catch (err) { r.favourite = was; renderDetail(); toastError(err.message); }
+  }
 
-    const root = $("#cookRoot");
+  async function setTriedFlag(r, on, msg) {
+    const was = r.tried;
+    r.tried = on;
+    if (msg) toast(msg);
+    try { await Data.setTried(r.id, on); }
+    catch (err) { r.tried = was; render(); toastError(err.message); }
+  }
+
+  function recipeMenu(r) {
+    const cols = collectionNames(r).join(", ");
+    openSheet(`<div class="sh-h"><h3>${escapeHtml(r.name)}</h3><button class="ib" data-x aria-label="Close">✕</button></div><div class="sh-b">
+        <button class="mitem" data-edit>Edit recipe</button>
+        <button class="mitem" data-tried>${r.tried ? "Move to To try" : "Mark as cooked"}<small>${r.tried ? "It’s in your Cookbook now" : "It’s in To try now"}</small></button>
+        <button class="mitem" data-cols>Collections${cols ? `<small>${escapeHtml(cols)}</small>` : ""}</button>
+        <button class="mitem danger" data-del>Delete recipe</button></div>`,
+      (b) => {
+        const d = b.dataset;
+        closeSheet();
+        // Collections are chosen in the editor, which already has the collection chips.
+        if ("edit" in d || "cols" in d) openEditor(deepCopy(r));
+        else if ("tried" in d) setTriedFlag(r, !r.tried, r.tried ? "Moved to To try" : "Moved to your Cookbook");
+        else if ("del" in d) deleteRecipeById(r);
+      });
+  }
+
+  async function deleteRecipeById(r) {
+    if (!confirm(`Delete “${r.name}”? This can't be undone.`)) return;
+    try {
+      await Data.deleteRecipe(r.id);
+      await refresh();
+      setView("recipes");
+      toast("Deleted");
+    } catch (e) { toastError(e.message); }
+  }
+
+  // Add to plan: this week's days, today preselected, at the page's current serves.
+  // "Any day" from the brief is left out for now: it needs plan.any, a data change for a later stage.
+  function planSheet(r) {
+    const monday = Plan.mondayOf(new Date());
+    const today = Plan.isoDate(new Date());
+    const days = Plan.weekDates(monday).map((d) => ({
+      iso: Plan.isoDate(d),
+      short: d.toLocaleDateString("en-AU", { weekday: "short" }),
+      long: d.toLocaleDateString("en-AU", { weekday: "long" }),
+      date: `${d.getDate()} ${d.toLocaleDateString("en-AU", { month: "short" })}`,
+    }));
+    let pick = days.find((d) => d.iso === today) || days[0];
+    let sv = S.servings;
+    const sheet = openSheet(`<div class="sh-h"><h3>Add to plan</h3><button class="ib" data-x aria-label="Close">✕</button></div>
+      <div class="sh-b"><div class="lbl">This week</div><div class="daychips">${days.map((d) => `<button class="dchip ${d.iso === pick.iso ? "on" : ""}" data-pday="${d.iso}">${d.short}<small>${d.date}</small></button>`).join("")}</div>
+      <div class="rowline"><span class="k">Serves</span>${stepperHtml(sv, "psv")}</div></div>
+      <div class="sh-f"><button class="btn" data-padd>Add to ${pick.long}</button></div>`,
+      async (b) => {
+        const d = b.dataset;
+        if (d.pday) {
+          pick = days.find((x) => x.iso === d.pday);
+          sheet.querySelectorAll(".dchip").forEach((c) => c.classList.toggle("on", c === b));
+          sheet.querySelector("[data-padd]").textContent = `Add to ${pick.long}`;
+        } else if (d.psv) {
+          sv = Math.max(1, sv + Number(d.psv));
+          sheet.querySelector(".stp b").textContent = sv;
+        } else if ("padd" in d) {
+          closeSheet();
+          try {
+            const iso = Plan.isoDate(monday);
+            const week = S.week && S.week.weekStarting === iso ? S.week : await Data.loadWeek(iso);
+            week.plan[pick.iso] = week.plan[pick.iso] || {};
+            week.plan[pick.iso].Dinner = week.plan[pick.iso].Dinner || [];
+            week.plan[pick.iso].Dinner.push({ recipeId: r.id, servings: sv });
+            S.week = await Data.saveWeek(week);
+            toast("Added to the plan");
+          } catch (e) { toastError(e.message); }
+        }
+      });
+  }
+
+  // Adds this recipe at the page's serves to the current shopping list, merging with what's there.
+  async function addToShoppingList(r) {
+    const lines = Units.buildShoppingList([{ recipe: r, servings: S.servings }]);
+    try {
+      if (!S.list) {
+        const lists = await Data.loadShoppingLists();
+        S.list = lists.find((l) => !l.done) || lists[lists.length - 1] || null;
+      }
+      if (!S.list) S.list = { id: null, name: "Shopping list", weekStarting: "", items: [], done: false };
+      // Ticked and hand-added lines stay as they are; open recipe lines merge with the new ones.
+      const keep = S.list.items.filter((i) => i.checked || i.manual);
+      const open = S.list.items.filter((i) => !i.checked && !i.manual);
+      const merged = Units.aggregate(open.concat(lines).map((i) => ({ item: i.name, qty: i.qty, unit: i.unit, fromRecipes: i.fromRecipes || [] })));
+      S.list.items = merged.concat(keep);
+      S.list = await Data.saveShoppingList(S.list);
+      toast(`Added ${lines.length} item${lines.length === 1 ? "" : "s"}`);
+    } catch (e) { toastError(e.message); }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Bottom sheets (centred dialogs on the desktop)
+  // ---------------------------------------------------------------------------
+  function openSheet(html, onClick) {
+    closeSheet();
+    const scrim = document.createElement("div");
+    scrim.className = "scrim";
+    scrim.onclick = closeSheet;
+    const sheet = document.createElement("div");
+    sheet.className = "sheet";
+    sheet.innerHTML = `<div class="grab"></div>${html}`;
+    sheet.addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (!b) return;
+      if ("x" in b.dataset) closeSheet();
+      else if (onClick) onClick(b, e);
+    });
+    document.body.append(scrim, sheet);
+    return sheet;
+  }
+  function closeSheet() {
+    $$("body > .scrim, body > .sheet").forEach((n) => n.remove());
+  }
+
+  // ---------------------------------------------------------------------------
+  // Cook mode (#ck)
+  // ---------------------------------------------------------------------------
+  const SIZES = [22, 26, 32];
+  // One timer at a time, kept outside cook mode's paint so it survives moving between steps.
+  const TM = { left: 0, up: false, iv: null, audio: null, onTick: null, onChange: null };
+
+  function startTimer(s) {
+    stopTimer();
+    TM.left = s;
+    // An AudioContext made during the tap is allowed to play later, when the timer runs out.
+    try { TM.audio = TM.audio || new (window.AudioContext || window.webkitAudioContext)(); TM.audio.resume(); } catch { TM.audio = null; }
+    TM.iv = setInterval(() => {
+      TM.left--;
+      if (TM.left <= 0) {
+        clearInterval(TM.iv); TM.iv = null; TM.up = true;
+        timeUpAlert();
+        if (TM.onChange) TM.onChange();
+      } else if (TM.onTick) TM.onTick();
+    }, 1000);
+  }
+  function stopTimer() {
+    clearInterval(TM.iv); TM.iv = null; TM.up = false; TM.left = 0;
+  }
+  function timeUpAlert() {
+    try { if (navigator.vibrate) navigator.vibrate([300, 150, 300]); } catch { /* not on desktop */ }
+    try {
+      const ctx = TM.audio;
+      if (!ctx) return;
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.frequency.value = 880;
+      o.connect(g); g.connect(ctx.destination);
+      g.gain.setValueAtTime(0.0001, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.3, ctx.currentTime + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.6);
+      o.start(); o.stop(ctx.currentTime + 0.65);
+    } catch { /* no audio */ }
+  }
+
+  function openCookMode(recipe) {
+    const steps = recipe.steps.length ? recipe.steps : [{ id: "s1", text: "No method recorded.", ingredientIds: [], group: "" }];
+    let idx = 0;
+    let fin = false;
+    let fs = Number(localStorage.getItem("cookbook_cook_text")) || 26;
+    if (!SIZES.includes(fs)) fs = 26;
+    let sheetOpen = false;
+
+    cookOpen = true;
+    requestWakeLock();
+
     const wrap = document.createElement("div");
     wrap.className = "cook";
-    root.appendChild(wrap);
+    $("#cookRoot").appendChild(wrap);
 
     function paint() {
-      const st = steps[idx];
-      wrap.innerHTML = "";
-
-      const bar = document.createElement("div");
-      bar.className = "bar";
-      const nm = document.createElement("div");
-      nm.className = "nm";
-      nm.textContent = recipe.name;
-      bar.appendChild(nm);
-      const count = document.createElement("span");
-      count.className = "count";
-      count.textContent = `${idx + 1} / ${steps.length}`;
-      bar.appendChild(count);
-      bar.appendChild(makeBtn("✕", "btn ghost sm", close));
-      wrap.appendChild(bar);
-
-      const stage = document.createElement("div");
-      stage.className = "stage";
-      const no = document.createElement("div");
-      no.className = "stepno";
-      no.textContent = st.group ? `${st.group} · Step ${idx + 1}` : `Step ${idx + 1}`;
-      stage.appendChild(no);
-      const txt = document.createElement("div");
-      txt.className = "txt";
-      txt.textContent = st.text;
-      stage.appendChild(txt);
-      const pills = stepIngredientPills(st, byId);
-      if (pills) stage.appendChild(pills);
-
-      const tick = document.createElement("label");
-      tick.className = "tick";
-      const box = document.createElement("input");
-      box.type = "checkbox";
-      box.checked = done.has(idx);
-      box.onchange = () => { box.checked ? done.add(idx) : done.delete(idx); };
-      tick.appendChild(box);
-      tick.appendChild(document.createTextNode("Done"));
-      stage.appendChild(tick);
-      wrap.appendChild(stage);
-
-      const nav = document.createElement("div");
-      nav.className = "nav";
-      const prev = makeBtn("← Back", "btn", () => { if (idx > 0) { idx--; paint(); } });
-      prev.disabled = idx === 0;
-      nav.appendChild(prev);
-      if (idx < steps.length - 1) {
-        nav.appendChild(makeBtn("Next →", "btn primary", () => { done.add(idx); idx++; paint(); }));
-      } else {
-        nav.appendChild(makeBtn("Finish", "btn primary", close));
-      }
-      wrap.appendChild(nav);
+      const scaled = scaledFor(recipe);
+      const byId = Object.fromEntries(scaled.map((i) => [i.id, i]));
+      const st = steps[idx], n = steps.length;
+      const tm = Timer.timerFor(st.text);
+      const running = Boolean(TM.iv) || TM.up;
+      const ings = (st.ingredientIds || []).map((id) => byId[id]).filter(Boolean);
+      wrap.style.setProperty("--cfs", fs + "px");
+      wrap.innerHTML = `
+        <div class="cbar"><button class="ib" data-close aria-label="Close cook mode">✕</button><div class="ttl"><b>${escapeHtml(recipe.name)}</b><small>Step ${idx + 1} of ${n}</small></div><button class="txtb" data-aa aria-label="Text size">Aa</button><button class="txtb" data-all>Ingredients</button></div>
+        ${running ? `<div class="tbanner ${TM.up ? "up" : ""}"><span>${TM.up ? "Time’s up" : "Timer · " + Timer.clock(TM.left)}</span><button data-stop>${TM.up ? "OK" : "Stop"}</button></div>` : ""}
+        <div class="cstage ${running ? "t" : ""}">
+          <div class="lbl stepno">${st.group ? escapeHtml(st.group) + " · " : ""}Step ${idx + 1}</div>
+          <div class="ctext">${escapeHtml(st.text)}</div>
+          ${tm && !running ? `<button class="tbtn" data-start="${tm.s}">Start ${tm.label} timer</button>` : ""}
+          ${ings.length ? `<div class="lbl">You’ll need</div>${ings.map((g) => `<div class="nrow"><span class="q">${escapeHtml(amountText(g)) || "·"}</span><span>${escapeHtml(g.item)}</span></div>`).join("")}` : ""}
+        </div>
+        <div class="cnav"><button class="back" data-prev ${idx === 0 ? "disabled" : ""}>‹ Back</button><button class="next" data-next>${idx === n - 1 ? "Finish" : "Next step ›"}</button></div>
+        ${fin ? `<div class="finish"><h3>Done. Enjoy it.</h3><p>${recipe.tried ? `Serves ${S.servings}. Mark it cooked to keep track of what you’ve made.` : "Moves it from To try into your Cookbook."}</p><button class="btn" data-cooked>Mark as cooked</button><button class="btn line" data-again>Back to recipe</button></div>` : ""}`;
     }
 
+    // Only the clock text changes each second, so the stage keeps its scroll position.
+    TM.onTick = () => {
+      const s = wrap.querySelector(".tbanner span");
+      if (s) s.textContent = "Timer · " + Timer.clock(TM.left); else paint();
+    };
+    TM.onChange = paint;
+
+    function ingSheet() {
+      sheetOpen = true;
+      const sheet = openSheet(`<div class="sh-h"><h3>Ingredients · serves ${S.servings}</h3><button class="ib" data-x aria-label="Close">✕</button></div><div class="sh-b">${ingRowsHtml(recipe, scaledFor(recipe))}</div>`,
+        (b) => {
+          if (!b.dataset.tick) return;
+          toggleTick(recipe.id, b.dataset.tick);
+          const body = sheet.querySelector(".sh-b"), top = body.scrollTop;
+          body.innerHTML = ingRowsHtml(recipe, scaledFor(recipe));
+          body.scrollTop = top;
+        });
+    }
+
+    function next() { if (idx < steps.length - 1) idx++; else fin = true; paint(); }
+    function prev() { if (idx > 0) { idx--; paint(); } }
+
+    wrap.onclick = (e) => {
+      const b = e.target.closest("button");
+      if (!b) return;
+      const d = b.dataset;
+      if ("next" in d) next();
+      else if ("prev" in d) prev();
+      else if ("aa" in d) {
+        fs = SIZES[(SIZES.indexOf(fs) + 1) % SIZES.length];
+        localStorage.setItem("cookbook_cook_text", String(fs));
+        paint();
+        toast(`Text ${fs}px`);
+      }
+      else if ("all" in d) ingSheet();
+      else if (d.start) { startTimer(Number(d.start)); paint(); }
+      else if ("stop" in d) { stopTimer(); paint(); }
+      else if ("close" in d || "again" in d) close();
+      else if ("cooked" in d) {
+        if (!recipe.tried) setTriedFlag(recipe, true);
+        close();
+        toast("Marked as cooked");
+      }
+    };
+
     function onKey(e) {
+      if (document.querySelector(".sheet")) return;   // the sheet handles its own Escape
       if (e.key === "Escape") close();
-      else if (e.key === "ArrowRight" && idx < steps.length - 1) { idx++; paint(); }
-      else if (e.key === "ArrowLeft" && idx > 0) { idx--; paint(); }
+      else if (fin) return;
+      else if (e.key === "ArrowRight") next();
+      else if (e.key === "ArrowLeft") prev();
     }
 
     function close() {
       document.removeEventListener("keydown", onKey);
+      stopTimer();
+      TM.onTick = TM.onChange = null;
+      if (sheetOpen) closeSheet();
       wrap.remove();
+      cookOpen = false;
+      if (!S.awake) releaseWakeLock();
+      if (S.view === "recipe") renderDetail();
     }
 
     document.addEventListener("keydown", onKey);
@@ -915,7 +1120,7 @@
       pick.className = "ingpick";
       if (!S.editing.ingredients.length) {
         const hint = document.createElement("span");
-        hint.style.cssText = "font-size:12.5px;color:var(--ink-faint)";
+        hint.style.cssText = "font-size:12.5px;color:var(--ink-3)";
         hint.textContent = "Add ingredients above to link them to this step.";
         pick.appendChild(hint);
       }
@@ -923,7 +1128,7 @@
         if (!ing.item) continue;
         const on = (st.ingredientIds || []).includes(ing.id);
         const b = document.createElement("button");
-        b.className = "opt";
+        b.className = "chip";
         b.textContent = ing.item;
         b.setAttribute("aria-pressed", String(on));
         b.onclick = () => {
@@ -943,14 +1148,14 @@
     const el = $("#edCollections");
     el.innerHTML = "";
     if (!S.collections.length) {
-      el.innerHTML = '<span style="font-size:13px;color:var(--ink-faint)">No collections yet — make one on the Collections tab.</span>';
+      el.innerHTML = '<span style="font-size:13px;color:var(--ink-3)">No collections yet — make one on the Collections tab.</span>';
       return;
     }
     for (const c of S.collections) {
       const on = (S.editing.collectionIds || []).includes(c.id);
       const b = document.createElement("button");
       b.className = "chip";
-      b.textContent = `${c.emoji ? c.emoji + " " : ""}${c.name}`;
+      b.textContent = c.name;
       b.setAttribute("aria-pressed", String(on));
       b.onclick = () => {
         S.editing.collectionIds = S.editing.collectionIds || [];
@@ -1277,57 +1482,8 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Collections
-  // ---------------------------------------------------------------------------
-  function wireCollections() {
-    $("#btnNewCollection").onclick = async () => {
-      const name = prompt("Collection name (e.g. Weeknight dinners):");
-      if (!name) return;
-      const emoji = prompt("An emoji for it? (optional)") || "";
-      try {
-        await Data.createCollection(name.trim(), emoji.trim(), S.collections.length);
-        await refresh();
-        toast("Collection created");
-      } catch (e) { toastError(e.message); }
-    };
-  }
-
-  function renderCollections() {
-    const el = $("#collectionGrid");
-    el.innerHTML = "";
-    if (!S.collections.length) {
-      el.innerHTML = `<div class="empty" style="grid-column:1/-1">
-        <div class="mark">🗂️</div><h3>No collections yet</h3>
-        <p>Collections are just groups — “Weeknight dinners”, “Baking”, “Mum's recipes”.</p></div>`;
-      return;
-    }
-    for (const c of S.collections) {
-      const count = S.recipes.filter((r) => (r.collectionIds || []).includes(c.id)).length;
-      const card = document.createElement("button");
-      card.className = "card";
-      card.style.padding = "20px 18px";
-      card.innerHTML = `
-        <div style="font-size:30px;margin-bottom:8px">${escapeHtml(c.emoji || "🗂️")}</div>
-        <div class="title" style="margin-bottom:3px">${escapeHtml(c.name)}</div>
-        <div class="meta">${count} recipe${count === 1 ? "" : "s"}</div>`;
-      card.onclick = () => { S.collectionId = c.id; setView("recipes"); };
-      el.appendChild(card);
-    }
-  }
-
-  // ---------------------------------------------------------------------------
   // Small helpers
   // ---------------------------------------------------------------------------
-  function makeBtn(label, cls, onclick) {
-    const b = document.createElement("button");
-    if (cls) b.className = cls;
-    b.textContent = label;
-    b.onclick = onclick;
-    return b;
-  }
-  function makeH2(text) { const h = document.createElement("h2"); h.textContent = text; return h; }
-  function makeGroupHead(text) { const d = document.createElement("div"); d.className = "grouphead"; d.textContent = text; return d; }
-
   // Preserves first-seen order, so sub-recipe sections appear in the order the recipe lists them.
   function groupBy(list, keyFn) {
     const map = new Map();
@@ -1354,27 +1510,23 @@
       .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   }
   function escapeAttr(s) { return escapeHtml(s); }
-  // Quotes and backslashes would otherwise break out of the url("…") wrapper in a style attribute.
-  function cssUrl(s) { return String(s || "").replace(/["\\]/g, "\\$&"); }
 
+  // Toast: centred above the tab bar (brief, Part A).
   let toastTimer = null;
   function toast(msg, ms = 2600) {
+    showToast(msg, "ptoast", ms);
+  }
+  function toastError(msg) {
+    showToast(msg, "ptoast err", 6000);
+  }
+  function showToast(msg, cls, ms) {
     clearToast();
     const t = document.createElement("div");
-    t.className = "toast";
+    t.className = cls;
     t.textContent = msg;
     t.id = "toast";
     document.body.appendChild(t);
     if (ms) toastTimer = setTimeout(clearToast, ms);
-  }
-  function toastError(msg) {
-    clearToast();
-    const t = document.createElement("div");
-    t.className = "toast err";
-    t.textContent = msg;
-    t.id = "toast";
-    document.body.appendChild(t);
-    toastTimer = setTimeout(clearToast, 6000);
   }
   function clearToast() {
     if (toastTimer) { clearTimeout(toastTimer); toastTimer = null; }
