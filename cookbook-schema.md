@@ -124,11 +124,18 @@ Airtable version: loading a week is now a single get by key, with no query, no i
   "2026-07-27": {
     "Dinner": [ { "recipeId": "aB3xK9…", "servings": 8 } ],
     "Lunch":  [ { "recipeId": "cD7mP2…", "servings": 2 } ]
+  },
+  "any": {
+    "Dinner": [ { "recipeId": "eF1qR8…", "servings": 4 } ]
   }
 }
 ```
 
-Meal keys are `Breakfast`, `Lunch`, `Dinner`.
+Meal keys are `Breakfast`, `Lunch`, `Dinner`. `any` sits beside the date keys and holds the week's
+"Any day" meals in the same shape. An entry may carry `"cooked": true` once it has been ticked on
+the Plan screen; a missing `cooked` means not cooked, so weeks saved before either field existed
+read unchanged. Ticking a meal also sets the recipe's `tried` to true when it was false; unticking
+clears `cooked` only.
 
 ---
 

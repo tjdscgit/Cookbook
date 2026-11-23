@@ -12,14 +12,8 @@
   --scrim: rgba(14,26,18,.42); --shadow: 0 6px 18px rgba(21,48,31,.22);
   --serif: Fraunces, Georgia, serif;
   --sans: "Roboto Flex", system-ui, sans-serif;
-
-  /* Older names still used by the planner and shopping views (cookbook-plan.js), which are later
-     stages of the redesign. They point at the new tokens so those screens follow the palette. */
-  --paper: var(--bg); --card: var(--surface); --card-2: var(--surface-2);
-  --ink-soft: var(--ink-2); --ink-faint: var(--ink-3); --line-soft: var(--line);
-  --clay: var(--accent-ink); --clay-soft: var(--accent); --clay-wash: var(--accent-wash);
-  --herb: var(--brand); --warn: var(--accent);
-  --r-sm: 8px; --r: 14px; --r-lg: 20px;
+  /* Older name still used by the Settings status lines. */
+  --herb: var(--brand);
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
@@ -318,19 +312,73 @@ dialog .editrow input { height: 44px; padding: 0 10px; }
 .finish h3 { font-family: Fraunces, Georgia, serif; font-size: 32px; font-weight: 600; margin: 0 0 4px; line-height: 1.1; }
 .finish p { margin: 0 0 20px; color: var(--ink-2); font-size: 17px; }
 
-/* ---------- planner and shopping (Parts E/F of the redesign come later) ---------- */
-.legacy { max-width: 1080px; margin: 0 auto; padding: 18px 16px 30px; }
-.legacy .pagehead { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
-.legacy .pagehead h1 { font-family: Fraunces, Georgia, serif; font-size: 30px; font-weight: 600; line-height: 1.1; letter-spacing: -.01em; margin: 0; }
-.legacy .pagehead .sub { color: var(--ink-2); font-size: 14px; margin-top: 2px; }
-.legacy .searchrow { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; }
-.legacy .searchrow input { flex: 1; }
-.legacy .grouphead { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); margin: 16px 0 4px; }
-.legacy .inglist { list-style: none; padding: 0; margin: 0; }
-.legacy .inglist li { display: flex; gap: 11px; align-items: baseline; padding: 8px 0; border-bottom: 1px solid var(--line); }
-.legacy .inglist .nm { flex: 1; }
-.legacy .empty { text-align: center; padding: 48px 20px; color: var(--ink-3); }
-.legacy .empty h3 { font-size: 16px; font-weight: 600; margin: 0 0 6px; color: var(--ink-2); }
+/* ---------- planner (#pl) ---------- */
+.wk { display: flex; align-items: center; justify-content: space-between; margin: 6px 16px 0; height: 48px; background: var(--surface); border: 1px solid var(--line); border-radius: 999px; }
+.wk button { width: 48px; height: 46px; font-size: 22px; color: var(--ink-2); }
+.wk span { font-weight: 600; font-size: 15px; }
+.shopcard { margin: 12px 16px 6px; padding: 12px 12px 12px 16px; border-radius: 16px; background: var(--lime); color: var(--lime-ink); display: flex; align-items: center; gap: 12px; }
+.shopcard div { flex: 1; }
+.shopcard b { display: block; font-size: 16px; }
+.shopcard small { font-size: 14px; opacity: .85; }
+.shopcard button { height: 44px; padding: 0 18px; border-radius: 999px; background: var(--surface); color: var(--ink); font-weight: 600; font-size: 15px; flex: none; }
+.day { padding: 6px 16px 6px; border-top: 1px solid var(--line); }
+.day:first-of-type { border-top: 0; }
+.dh { display: flex; align-items: center; justify-content: space-between; min-height: 48px; }
+.dn { font-size: 17px; font-weight: 700; }
+.dn small { color: var(--ink-3); font-weight: 500; font-size: 15px; margin-left: 6px; }
+.today { font-size: 12px; font-weight: 700; color: var(--accent-ink); background: var(--accent-wash); padding: 3px 9px; border-radius: 999px; margin-left: 8px; vertical-align: 2px; }
+.addb { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); font-size: 22px; line-height: 1; color: var(--ink-2); }
+.day.past .dn { color: var(--ink-3); }
+.day.past .meal { opacity: .6; }
+.meal { display: grid; grid-template-columns: 26px 56px minmax(0,1fr) 40px; gap: 12px; align-items: center; padding: 6px 0 10px; }
+.meal .ph { width: 56px; height: 56px; border-radius: 12px; }
+.meal .ph .ltr { font-size: 24px; }
+.meal .openr { text-align: left; }
+.meal .mn { font-size: 15px; font-weight: 600; line-height: 1.3; text-align: left; }
+.meal .mm { font-size: 13px; color: var(--ink-3); margin-top: 2px; }
+.meal .mm i { font-style: normal; color: var(--accent-ink); font-weight: 600; }
+.meal .more { width: 40px; height: 44px; font-size: 20px; color: var(--ink-3); }
+.meal.cooked .mn { color: var(--ink-3); }
+.nothing { font-size: 14px; color: var(--ink-3); padding: 0 0 12px; }
+.plspace { height: 30px; }
+.plist { display: flex; flex-direction: column; }
+.prow { display: grid; grid-template-columns: 44px minmax(0,1fr) 26px; gap: 12px; align-items: center; min-height: 60px; border-bottom: 1px solid var(--line); text-align: left; }
+.prow .ph { width: 44px; height: 44px; border-radius: 10px; }
+.prow .ph .ltr { font-size: 20px; }
+.prow b { font-size: 15px; font-weight: 600; line-height: 1.25; display: block; }
+.prow small { font-size: 13px; color: var(--ink-3); }
+.plist .nothing { padding: 16px 0; margin: 0; }
+.sheet .search.pq { width: 100%; margin: 0; }
+.mseg { display: grid; grid-template-columns: repeat(3, 1fr); background: var(--surface-2); border-radius: 999px; padding: 4px; margin-bottom: 12px; }
+.mseg button { height: 40px; border-radius: 999px; font-weight: 600; font-size: 14px; color: var(--ink-2); }
+.mseg button.on { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+.fline { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.fline .k { font-weight: 600; }
+.minichips { display: flex; gap: 8px; margin: 10px 0 6px; }
+.minichips .chip { height: 34px; }
+.sh-f .btn.off { opacity: .45; cursor: default; }
+
+/* ---------- shopping (#sh) ---------- */
+.addrow { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px; margin: 6px 16px 0; }
+.addrow input { height: 48px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); padding: 0 14px; font-size: 16px; outline: none; }
+.addrow button { height: 48px; padding: 0 20px; border-radius: 14px; background: var(--brand); color: var(--on-brand); font-weight: 600; }
+.subline { font-size: 14px; color: var(--ink-3); padding: 0 16px; }
+.seg.flat { position: static; margin: 14px 16px 2px; }
+.grp { padding: 18px 16px 6px; }
+.irow { display: grid; grid-template-columns: 26px minmax(0,1fr); gap: 12px; align-items: start; padding: 12px 16px; border-bottom: 1px solid var(--line); width: 100%; text-align: left; }
+.irow .it { font-size: 17px; }
+.rhead { display: flex; align-items: center; gap: 12px; padding: 16px 16px 8px; }
+.rhead .ph { width: 40px; height: 40px; border-radius: 10px; flex: none; }
+.rhead .ph .ltr { font-size: 18px; }
+.rhead b { font-size: 16px; flex: 1; line-height: 1.25; }
+.rhead small { font-size: 13px; color: var(--ink-3); }
+.trolley { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 56px; padding: 0 16px; margin-top: 10px; border-top: 1px solid var(--line); font-weight: 600; color: var(--ink-2); }
+.trolley i { font-style: normal; transition: transform .15s; }
+.trolley.open i { transform: rotate(90deg); }
+.shempty { padding: 24px 16px; }
+.shspace { height: 20px; }
+.clearq { margin: 4px 0 14px; color: var(--ink-2); }
+.btn.clearyes { background: var(--danger); color: #fff; }
 
 /* ---------- desktop ---------- */
 @media (min-width: 801px) {
@@ -345,7 +393,7 @@ dialog .editrow input { height: 44px; padding: 0 10px; }
   .navspacer { flex: 1; }
   .main { left: 220px; bottom: 0; scrollbar-width: auto; }
   .main::-webkit-scrollbar { display: initial; }
-  #viewRecipes { max-width: 1080px; margin: 0 auto; }
+  #viewRecipes, #viewPlanner, #viewShopping { max-width: 1080px; margin: 0 auto; }
   .grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
   .fab { right: 24px; bottom: 24px; }
   .ptoast { bottom: 24px; }

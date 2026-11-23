@@ -48,11 +48,20 @@
     week: null,
     // shopping
     list: null,
+    listLoaded: false,
+    listWeek: null,       // the planned week the list was made from, for the "From 7 meals" line
+    shView: readShopView(), // "aisle" or "recipe", remembered
+    trolleyOpen: false,   // "In the trolley" starts collapsed
     // clip
     clipMode: "url",
     clipFile: null,
     loaded: false,
   };
+
+  function readShopView() {
+    try { return localStorage.getItem("cookbook_shop_view") === "recipe" ? "recipe" : "aisle"; }
+    catch { return "aisle"; }
+  }
 
   // ---------------------------------------------------------------------------
   // Boot
@@ -743,29 +752,22 @@
     } catch (e) { toastError(e.message); }
   }
 
-  // Add to plan: this week's days, today preselected, at the page's current serves.
-  // "Any day" from the brief is left out for now: it needs plan.any, a data change for a later stage.
+  // Add to plan: this week's days plus Any day (plan.any), today preselected, at the page's serves.
   function planSheet(r) {
     const monday = Plan.mondayOf(new Date());
-    const today = Plan.isoDate(new Date());
-    const days = Plan.weekDates(monday).map((d) => ({
-      iso: Plan.isoDate(d),
-      short: d.toLocaleDateString("en-AU", { weekday: "short" }),
-      long: d.toLocaleDateString("en-AU", { weekday: "long" }),
-      date: `${d.getDate()} ${d.toLocaleDateString("en-AU", { month: "short" })}`,
-    }));
-    let pick = days.find((d) => d.iso === today) || days[0];
+    const longOf = (key) => key === Plan.ANY ? "Any day" : Plan.dayInfo(new Date(key + "T00:00:00")).long;
+    let key = Plan.isoDate(new Date());
     let sv = S.servings;
     const sheet = openSheet(`<div class="sh-h"><h3>Add to plan</h3><button class="ib" data-x aria-label="Close">✕</button></div>
-      <div class="sh-b"><div class="lbl">This week</div><div class="daychips">${days.map((d) => `<button class="dchip ${d.iso === pick.iso ? "on" : ""}" data-pday="${d.iso}">${d.short}<small>${d.date}</small></button>`).join("")}</div>
+      <div class="sh-b"><div class="lbl">This week</div>${Plan.dayChipsHtml(monday, key, "data-pday")}
       <div class="rowline"><span class="k">Serves</span>${stepperHtml(sv, "psv")}</div></div>
-      <div class="sh-f"><button class="btn" data-padd>Add to ${pick.long}</button></div>`,
+      <div class="sh-f"><button class="btn" data-padd>Add to ${longOf(key)}</button></div>`,
       async (b) => {
         const d = b.dataset;
         if (d.pday) {
-          pick = days.find((x) => x.iso === d.pday);
+          key = d.pday;
           sheet.querySelectorAll(".dchip").forEach((c) => c.classList.toggle("on", c === b));
-          sheet.querySelector("[data-padd]").textContent = `Add to ${pick.long}`;
+          sheet.querySelector("[data-padd]").textContent = `Add to ${longOf(key)}`;
         } else if (d.psv) {
           sv = Math.max(1, sv + Number(d.psv));
           sheet.querySelector(".stp b").textContent = sv;
@@ -774,10 +776,10 @@
           try {
             const iso = Plan.isoDate(monday);
             const week = S.week && S.week.weekStarting === iso ? S.week : await Data.loadWeek(iso);
-            week.plan[pick.iso] = week.plan[pick.iso] || {};
-            week.plan[pick.iso].Dinner = week.plan[pick.iso].Dinner || [];
-            week.plan[pick.iso].Dinner.push({ recipeId: r.id, servings: sv });
-            S.week = await Data.saveWeek(week);
+            const day = week.plan[key] = week.plan[key] || {};
+            (day.Dinner = day.Dinner || []).push({ recipeId: r.id, servings: sv });
+            const saved = await Data.saveWeek(week);
+            if (!S.week || S.week === week || S.week.weekStarting === iso) S.week = saved;
             toast("Added to the plan");
           } catch (e) { toastError(e.message); }
         }
@@ -788,10 +790,7 @@
   async function addToShoppingList(r) {
     const lines = Units.buildShoppingList([{ recipe: r, servings: S.servings }]);
     try {
-      if (!S.list) {
-        const lists = await Data.loadShoppingLists();
-        S.list = lists.find((l) => !l.done) || lists[lists.length - 1] || null;
-      }
+      await ensureList();
       if (!S.list) S.list = { id: null, name: "Shopping list", weekStarting: "", items: [], done: false };
       // Ticked and hand-added lines stay as they are; open recipe lines merge with the new ones.
       const keep = S.list.items.filter((i) => i.checked || i.manual);
@@ -1317,168 +1316,338 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Planner
+  // Plan (#pl)
   // ---------------------------------------------------------------------------
+  // A week's plan is { "YYYY-MM-DD": { Dinner: [{recipeId, servings, cooked?}] }, any: {...} }.
+  // Entries are addressed by "key|meal|index" (Plan.dayEntries), so nothing extra is stored.
   function wirePlanner() {
-    $("#weekPrev").onclick = () => { S.monday = Plan.addDays(S.monday, -7); loadWeek(); };
-    $("#weekNext").onclick = () => { S.monday = Plan.addDays(S.monday, 7); loadWeek(); };
-    $("#weekToday").onclick = () => { S.monday = Plan.mondayOf(new Date()); loadWeek(); };
-    $("#btnMakeList").onclick = makeShoppingList;
-    $("#btnAddMeal").onclick = confirmAddMeal;
+    $("#viewPlanner").onclick = (e) => {
+      const b = e.target.closest("button, [data-openr]");
+      if (!b) return;
+      const d = b.dataset;
+      if (d.wk) { S.monday = Plan.addDays(S.monday, 7 * Number(d.wk)); loadWeek(); }
+      else if ("upd" in d) updateList();
+      else if (d.cooked) toggleCooked(d.cooked);
+      else if (d.openr) openPlanned(d.openr);
+      else if (d.addday) openPick(d.addday);
+      else if (d.mmore) mealMenu(d.mmore);
+    };
   }
 
   async function loadWeek() {
-    $("#weekLabel").textContent = Plan.formatWeekLabel(S.monday);
+    const iso = Plan.isoDate(S.monday);
     try {
-      S.week = await Data.loadWeek(Plan.isoDate(S.monday));
-      renderPlannerView();
+      const [week] = await Promise.all([Data.loadWeek(iso), ensureList()]);
+      if (Plan.isoDate(S.monday) !== iso) return;   // moved to another week while this one loaded
+      S.week = week;
+      if (S.view === "planner") renderPlannerView();
     } catch (e) { toastError(e.message); }
   }
 
   function renderPlannerView() {
-    $("#weekLabel").textContent = Plan.formatWeekLabel(S.monday);
     if (!S.week || S.week.weekStarting !== Plan.isoDate(S.monday)) { loadWeek(); return; }
-    Plan.renderPlanner($("#plannerGrid"), {
+    $("#viewPlanner").innerHTML = Plan.plannerHtml({
       week: S.week,
+      monday: S.monday,
+      thisMonday: Plan.mondayOf(new Date()),
+      today: Plan.isoDate(new Date()),
       recipesById: S.recipesById,
-      onOpen: openRecipe,
-      onAdd: promptAddMeal,
-      onRemove: async (dayKey, meal, entry) => {
-        const arr = (S.week.plan[dayKey] || {})[meal] || [];
-        const at = arr.indexOf(entry);
-        if (at >= 0) arr.splice(at, 1);
-        renderPlannerView();
-        try { S.week = await Data.saveWeek(S.week); }
-        catch (e) { toastError(e.message); }
-      },
+      phInner,
+      card: mealsOnList(S.week),
     });
   }
 
-  let pendingSlot = null;
-  function promptAddMeal(dayKey, meal) {
-    if (!S.recipes.length) { toastError("Add a recipe first."); return; }
-    pendingSlot = { dayKey, meal };
-    const sel = $("#mealRecipe");
-    sel.innerHTML = "";
-    for (const r of S.recipes) {
-      const o = document.createElement("option");
-      o.value = r.id;
-      o.textContent = r.name;
-      sel.appendChild(o);
-    }
-    sel.onchange = () => { $("#mealServings").value = S.recipesById[sel.value].servings; };
-    $("#mealServings").value = S.recipes[0].servings;
-    $("#addMealTitle").textContent = `Add ${meal.toLowerCase()}`;
-    $("#dlgAddMeal").showModal();
+  // How many of a week's planned meals the current shopping list covers ("4 of 7 meals added").
+  // Nothing records this directly, so it's read off the list: a meal counts once the list belongs
+  // to its week and some recipe line on it came from that meal's recipe. A recipe with no
+  // ingredients (or one since deleted) has nothing to add, so it counts as added.
+  function mealsOnList(week) {
+    const es = Plan.weekEntries(week, new Date(week.weekStarting + "T00:00:00"));
+    const forWeek = Boolean(S.list && S.list.weekStarting === week.weekStarting);
+    const onList = new Set();
+    if (forWeek) for (const it of S.list.items) if (!it.manual) for (const id of it.fromRecipes || []) onList.add(id);
+    const added = es.filter((e) => {
+      if (!forWeek) return false;
+      const r = S.recipesById[e.entry.recipeId];
+      return !r || !(r.ingredients || []).some((i) => i.item) || onList.has(e.entry.recipeId);
+    }).length;
+    return { added, total: es.length };
   }
 
-  async function confirmAddMeal() {
-    const { dayKey, meal } = pendingSlot || {};
-    if (!dayKey) return;
-    const recipeId = $("#mealRecipe").value;
-    const servings = Math.max(1, parseInt($("#mealServings").value, 10) || 1);
+  function entryAt(ref) {
+    const [key, meal, i] = ref.split("|");
+    const arr = ((S.week.plan[key] || {})[meal]) || [];
+    return { key, meal, i: Number(i), arr, entry: arr[Number(i)] };
+  }
 
-    S.week.plan[dayKey] = S.week.plan[dayKey] || {};
-    S.week.plan[dayKey][meal] = S.week.plan[dayKey][meal] || [];
-    S.week.plan[dayKey][meal].push({ recipeId, servings });
+  // Writes the week this screen is showing. If the screen moved to another week before the save
+  // came back, the newer state is kept rather than overwritten by the one just saved.
+  async function saveWeek() {
+    const w = S.week;
+    try {
+      const saved = await Data.saveWeek(w);
+      if (S.week === w) S.week = saved;
+    } catch (e) { toastError(e.message); }
+  }
 
-    $("#dlgAddMeal").close();
+  // Ticking a meal marks it cooked, and moves a To try recipe into the Cookbook (Part H.2).
+  // Unticking clears cooked only: the recipe has still been cooked, so tried is left alone.
+  async function toggleCooked(ref) {
+    const { entry } = entryAt(ref);
+    if (!entry) return;
+    entry.cooked = !entry.cooked;
+    const r = S.recipesById[entry.recipeId];
+    const promote = entry.cooked && r && r.tried === false;
     renderPlannerView();
-    try { S.week = await Data.saveWeek(S.week); }
-    catch (e) { toastError(e.message); }
+    if (promote) setTriedFlag(r, true, "Cooked, and moved into your Cookbook");
+    await saveWeek();
+  }
+
+  // Opens the recipe at the planned servings.
+  function openPlanned(ref) {
+    const { entry } = entryAt(ref);
+    if (!entry || !S.recipesById[entry.recipeId]) return;
+    openRecipe(entry.recipeId);
+    setServings(Number(entry.servings) || S.servings);
+  }
+
+  function mealMenu(ref) {
+    const at = entryAt(ref);
+    if (!at.entry) return;
+    openSheet(Plan.mealMenuHtml({ recipe: S.recipesById[at.entry.recipeId], entry: at.entry, key: at.key, monday: S.monday }), (b) => {
+      const d = b.dataset;
+      if ("openr" in d) { closeSheet(); openPlanned(ref); }
+      else if (d.mv) {
+        closeSheet();
+        // The entry moves as it is (servings, meal, cooked), so a Lunch stays a Lunch.
+        at.arr.splice(at.i, 1);
+        const day = S.week.plan[d.mv] = S.week.plan[d.mv] || {};
+        (day[at.meal] = day[at.meal] || []).push(at.entry);
+        renderPlannerView();
+        toast("Moved");
+        saveWeek();
+      } else if ("rm" in d) {
+        closeSheet();
+        at.arr.splice(at.i, 1);
+        renderPlannerView();
+        toast("Removed");
+        saveWeek();
+      }
+    });
+  }
+
+  // The Add sheet: search, Faves / To try / All, one recipe, meal and serves, then Add.
+  let pick = null;
+  function openPick(key) {
+    if (!S.recipes.length) { toastError("Add a recipe first."); return; }
+    pick = { key, picked: null, sv: 2, meal: "Dinner", f: "Faves", q: "" };
+    const sheet = openSheet("", onPickClick);
+    sheet.classList.add("pick");
+    sheet.addEventListener("input", (e) => {
+      if (e.target.matches("[data-pq]")) { pick.q = e.target.value; renderPick(); }
+    });
+    renderPick();
+  }
+
+  function pickRecipes() {
+    const q = pick.q.trim().toLowerCase();
+    return S.recipes.filter((r) =>
+      (pick.f === "All" || (pick.f === "Faves" ? r.favourite : !r.tried)) &&
+      (!q || (r.name + " " + (r.ingredients || []).map((i) => i.item).join(" ")).toLowerCase().includes(q)));
+  }
+
+  function renderPick() {
+    const sheet = $("body > .sheet");
+    if (!sheet || !pick) return;
+    const body = sheet.querySelector(".sh-b");
+    const top = body ? body.scrollTop : 0;
+    const typing = document.activeElement && document.activeElement.matches("[data-pq]");
+    sheet.innerHTML = `<div class="grab"></div>` + Plan.pickHtml(Object.assign({}, pick, { recipes: pickRecipes(), phInner }));
+    sheet.querySelector(".sh-b").scrollTop = top;
+    if (typing) { const i = sheet.querySelector("[data-pq]"); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
+  }
+
+  function onPickClick(b) {
+    const d = b.dataset;
+    if (d.pf) { pick.f = d.pf; renderPick(); }
+    else if (d.pr) { pick.picked = d.pr; pick.sv = S.recipesById[d.pr].servings; renderPick(); }
+    else if (d.pm) { pick.meal = d.pm; renderPick(); }
+    else if (d.ps) { pick.sv = Math.max(1, pick.sv + Number(d.ps)); renderPick(); }
+    else if ("padd2" in d) {
+      const r = S.recipesById[pick.picked];
+      if (!r) return;
+      closeSheet();
+      const day = S.week.plan[pick.key] = S.week.plan[pick.key] || {};
+      (day[pick.meal] = day[pick.meal] || []).push({ recipeId: r.id, servings: pick.sv });
+      renderPlannerView();
+      const words = r.name.split(" ");
+      toast(`Added ${words.length > 3 ? words.slice(0, 3).join(" ") + "…" : r.name}`);
+      saveWeek();
+    }
+  }
+
+  // The shopping card: "Open" when every meal is on the list, otherwise "Update".
+  async function updateList() {
+    const c = mealsOnList(S.week);
+    if (c.total && c.added === c.total) setView("shopping");
+    else await makeShoppingList();
   }
 
   // ---------------------------------------------------------------------------
-  // Shopping
+  // Shop (#sh)
   // ---------------------------------------------------------------------------
   function wireShopping() {
-    $("#btnAddItem").onclick = addManualItem;
-    $("#manualItem").onkeydown = (e) => { if (e.key === "Enter") addManualItem(); };
-    $("#btnClearChecked").onclick = async () => {
-      if (!S.list) return;
-      S.list.items = S.list.items.filter((i) => !i.checked);
-      renderShoppingView();
-      await saveList();
+    const el = $("#viewShopping");
+    el.onclick = (e) => {
+      const b = e.target.closest("button");
+      if (!b || b.closest("form")) return;   // the Add button submits the form instead
+      const d = b.dataset;
+      if (d.it !== undefined) toggleItem(Number(d.it));
+      else if (d.shview) {
+        S.shView = d.shview;
+        try { localStorage.setItem("cookbook_shop_view", d.shview); } catch { /* remembered for this visit only */ }
+        renderShoppingView();
+      }
+      else if ("trolley" in d) { S.trolleyOpen = !S.trolleyOpen; renderShoppingView(); }
+      else if ("shmore" in d) shopMenu();
     };
+    el.onsubmit = (e) => {
+      e.preventDefault();
+      addManualItem(e.target.querySelector("input"));
+    };
+  }
+
+  // The current list: the first one not marked done, as before.
+  async function ensureList() {
+    if (S.listLoaded) return;
+    try {
+      const lists = await Data.loadShoppingLists();
+      S.list = lists.find((l) => !l.done) || lists[lists.length - 1] || null;
+      S.listLoaded = true;
+    } catch (e) { toastError(e.message); }
   }
 
   async function makeShoppingList() {
     if (!S.week) return;
-    const meals = Plan.mealsForWeek(S.week, S.recipesById);
+    const meals = Plan.mealsForWeek(S.week, S.recipesById);   // every key, so Any day too
     if (!meals.length) { toastError("No meals planned for this week yet."); return; }
 
+    await ensureList();
     const items = Units.buildShoppingList(meals);
     // Manual additions survive a regenerate — they're things the plan doesn't know about (milk,
     // bin bags) and losing them every time the list was rebuilt would make the feature useless.
-    const keep = S.list && S.list.weekStarting === S.week.weekStarting
-      ? S.list.items.filter((i) => i.manual)
-      : [];
+    const same = S.list && S.list.weekStarting === S.week.weekStarting;
+    const keep = same ? S.list.items.filter((i) => i.manual) : [];
 
     S.list = {
-      id: S.list && S.list.weekStarting === S.week.weekStarting ? S.list.id : null,
-      name: `Week of ${Plan.formatWeekLabel(S.monday)}`,
+      id: same ? S.list.id : null,
+      name: `Week of ${Plan.rangeText(S.monday)}`,
       weekStarting: S.week.weekStarting,
       items: items.concat(keep),
       done: false,
     };
-    try {
-      S.list = await Data.saveShoppingList(S.list);
-      setView("shopping");
-      toast(`${items.length} items from ${meals.length} meals`);
-    } catch (e) { toastError(e.message); }
+    S.listWeek = S.week;
+    renderPlannerView();
+    toast("Shopping list updated");
+    await saveList();
+  }
+
+  // The week behind the current list, for "From 7 meals · 16–22 Nov".
+  function listWeek() {
+    const ws = S.list && S.list.weekStarting;
+    if (!ws) return null;
+    if (S.week && S.week.weekStarting === ws) return S.week;
+    if (S.listWeek && S.listWeek.weekStarting === ws) return S.listWeek;
+    return null;
+  }
+
+  function shopSubline() {
+    const ws = S.list && S.list.weekStarting;
+    if (!ws) return "Your list";
+    const w = listWeek();
+    const range = Plan.rangeText(new Date(ws + "T00:00:00"));
+    if (!w) return range;
+    const n = mealsOnList(w).added;
+    return `From ${n} meal${n === 1 ? "" : "s"} · ${range}`;
   }
 
   async function renderShoppingView() {
-    if (!S.list) {
-      try {
-        const lists = await Data.loadShoppingLists();
-        S.list = lists.find((l) => !l.done) || lists[lists.length - 1] || null;
-      } catch (e) { toastError(e.message); }
+    if (!S.listLoaded) { await ensureList(); if (S.view !== "shopping") return; }
+    const ws = S.list && S.list.weekStarting;
+    if (ws && !listWeek()) {
+      // Load the list's week once so the subline can count its meals, then paint again.
+      Data.loadWeek(ws).then((w) => { S.listWeek = w; if (S.view === "shopping") renderShoppingView(); }).catch(() => {});
     }
-    $("#shoppingSub").textContent = S.list
-      ? `${S.list.items.filter((i) => !i.checked).length} left · ${S.list.name}`
-      : "";
-    Plan.renderShopping($("#shoppingList"), {
-      list: S.list,
-      onToggle: async (item, checked) => {
-        item.checked = checked;
-        renderShoppingView();
-        await saveList();
-      },
-      onRemove: async (item) => {
-        S.list.items = S.list.items.filter((i) => i !== item);
-        renderShoppingView();
-        await saveList();
-      },
+    const el = $("#viewShopping");
+    const input = el.querySelector(".addrow input");
+    const typing = input && document.activeElement === input;
+    el.innerHTML = Plan.shoppingHtml({
+      list: S.list, view: S.shView, open: S.trolleyOpen,
+      recipesById: S.recipesById, phInner, subline: shopSubline(), draft: input ? input.value : "",
     });
+    if (typing) el.querySelector(".addrow input").focus();
   }
 
-  async function addManualItem() {
-    const input = $("#manualItem");
+  function toggleItem(i) {
+    const it = S.list && S.list.items[i];
+    if (!it) return;
+    it.checked = !it.checked;
+    renderShoppingView();
+    saveList();
+  }
+
+  async function addManualItem(input) {
     const text = input.value.trim();
     if (!text) return;
-    if (!S.list) {
-      S.list = { id: null, name: "Shopping list", weekStarting: "", items: [], done: false };
-    }
+    if (!S.list) S.list = { id: null, name: "Shopping list", weekStarting: "", items: [], done: false };
     const parsed = Units.parseIngredient(text);
-    S.list.items.push({
+    const aisle = Units.aisleFor(parsed.item || text);
+    // At the top, so it leads its aisle.
+    S.list.items.unshift({
       id: "x" + Math.random().toString(36).slice(2, 9),
       name: parsed.item || text,
       qty: parsed.qty, unit: parsed.unit,
-      aisle: Units.aisleFor(parsed.item || text),
+      aisle,
       checked: false, manual: true, fromRecipes: [],
     });
     input.value = "";
     renderShoppingView();
+    toast(`Added to ${aisle}`);
     await saveList();
+  }
+
+  function shopMenu() {
+    const n = S.list ? S.list.items.filter((i) => i.checked).length : 0;
+    const sheet = openSheet(Plan.shopMenuHtml(n), (b) => {
+      const d = b.dataset;
+      if ("clear" in d) {
+        closeSheet();
+        if (S.list) S.list.items = S.list.items.filter((i) => !i.checked);
+        renderShoppingView();
+        toast("Cleared ticked items");
+        saveList();
+      } else if ("clearall" in d) {
+        // Second step, in the same sheet.
+        sheet.querySelector(".sh-b").innerHTML = Plan.clearConfirmHtml(S.list ? S.list.items.length : 0);
+      } else if ("clearyes" in d) {
+        closeSheet();
+        if (S.list) S.list.items = [];
+        renderShoppingView();
+        saveList();
+      }
+    });
   }
 
   // Writes are fire-and-forget from the UI's point of view — the local state has already been
   // repainted, so a failed save shows an error but never leaves a half-updated screen.
   async function saveList() {
-    if (!S.list) return;
-    try { S.list = await Data.saveShoppingList(S.list); }
-    catch (e) { toastError(e.message); }
+    const l = S.list;
+    if (!l) return;
+    try {
+      const saved = await Data.saveShoppingList(l);
+      // Keep the live object (and any ticks made meanwhile); only pick up the new id.
+      if (S.list === l) l.id = saved.id;
+    } catch (e) { toastError(e.message); }
   }
 
   // ---------------------------------------------------------------------------

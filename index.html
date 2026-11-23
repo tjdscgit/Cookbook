@@ -51,40 +51,9 @@
     <!-- ============ Recipe page ============ -->
     <section class="view" id="viewRecipe" hidden></section>
 
-    <!-- ============ Planner ============ -->
-    <section class="view legacy" id="viewPlanner" hidden>
-      <div class="pagehead">
-        <div>
-          <h1>Weekly planner</h1>
-          <div class="sub" id="weekLabel"></div>
-        </div>
-        <div style="display:flex;gap:9px;flex-wrap:wrap">
-          <button class="btn sm" id="weekPrev" aria-label="Previous week">‹</button>
-          <button class="btn sm" id="weekToday">This week</button>
-          <button class="btn sm" id="weekNext" aria-label="Next week">›</button>
-          <button class="btn primary sm" id="btnMakeList">Make shopping list</button>
-        </div>
-      </div>
-      <div id="plannerGrid"></div>
-    </section>
-
-    <!-- ============ Shopping ============ -->
-    <section class="view legacy" id="viewShopping" hidden>
-      <div class="pagehead">
-        <div>
-          <h1>Shopping list</h1>
-          <div class="sub" id="shoppingSub"></div>
-        </div>
-        <div style="display:flex;gap:9px">
-          <button class="btn sm" id="btnClearChecked">Clear ticked</button>
-        </div>
-      </div>
-      <div class="searchrow">
-        <input type="text" id="manualItem" placeholder="Add an item…" autocomplete="off">
-        <button class="btn sm" id="btnAddItem">Add</button>
-      </div>
-      <div id="shoppingList"></div>
-    </section>
+    <!-- ============ Plan (#pl) and Shop (#sh): painted by cookbook-plan.js ============ -->
+    <div class="view" id="viewPlanner" hidden></div>
+    <div class="view" id="viewShopping" hidden></div>
 
   </main>
 
@@ -281,29 +250,6 @@
   <div class="sh-f row">
     <button class="btn line" data-close>Cancel</button>
     <button class="btn" id="btnDoClip">Read recipe</button>
-  </div>
-</dialog>
-
-<!-- ============ Add to planner (from the planner's day slots) ============ -->
-<dialog id="dlgAddMeal">
-  <div class="grab"></div>
-  <div class="sh-h">
-    <h3 id="addMealTitle">Add to planner</h3>
-    <button class="ib" data-close aria-label="Close">✕</button>
-  </div>
-  <div class="sh-b">
-    <label class="field">
-      <span class="lbl">Recipe</span>
-      <select id="mealRecipe"></select>
-    </label>
-    <label class="field">
-      <span class="lbl">Servings</span>
-      <input type="number" id="mealServings" min="1" step="1" value="4">
-    </label>
-  </div>
-  <div class="sh-f row">
-    <button class="btn line" data-close>Cancel</button>
-    <button class="btn" id="btnAddMeal">Add</button>
   </div>
 </dialog>
 
