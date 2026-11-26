@@ -203,56 +203,6 @@
   </div>
 </dialog>
 
-<!-- ============ Clipper ============ -->
-<dialog id="dlgClip">
-  <div class="grab"></div>
-  <div class="sh-h">
-    <h3>Clip a recipe</h3>
-    <button class="ib" data-close aria-label="Close">✕</button>
-  </div>
-  <div class="sh-b">
-    <div class="chips" id="clipTabs">
-      <button class="chip" data-clip="url" aria-pressed="true">Website</button>
-      <button class="chip" data-clip="photo" aria-pressed="false">Photo</button>
-      <button class="chip" data-clip="text" aria-pressed="false">Paste text</button>
-    </div>
-
-    <div class="clip-pane" data-pane="url">
-      <label class="field">
-        <span class="lbl">Recipe URL</span>
-        <input type="url" id="clipUrl" placeholder="https://…">
-        <span class="hint">Most recipe sites publish machine-readable recipe data, which is read directly — accurate, instant, and free. Sites without it fall back to Claude, which needs an API key.</span>
-      </label>
-    </div>
-
-    <div class="clip-pane" data-pane="photo" hidden>
-      <label class="field">
-        <span class="lbl">Photo of a recipe</span>
-        <input type="file" id="clipPhoto" accept="image/*">
-        <span class="hint">A cookbook page, a handwritten card, or a screenshot of a social post. Needs an Anthropic API key — roughly 5–6¢ per photo.</span>
-      </label>
-      <img id="clipPreview" hidden alt="" style="border-radius:14px;margin-top:10px;max-height:220px;object-fit:contain">
-    </div>
-
-    <div class="clip-pane" data-pane="text" hidden>
-      <label class="field">
-        <span class="lbl">Paste the recipe</span>
-        <textarea id="clipText" rows="9" placeholder="Paste an Instagram caption, an email, or text copied off a page…"></textarea>
-        <span class="hint">Needs an Anthropic API key. Use this for social posts, which can't be fetched directly.</span>
-      </label>
-    </div>
-
-    <div id="clipStatus" class="status" style="margin-top:6px"></div>
-    <!-- Manual entry used to be the "New recipe" button on the Recipes header, which the redesign
-         drops; until the full Add recipe sheet (later stage) lands, it lives here. -->
-    <button class="btn sm" id="btnNew" style="margin-top:8px">Write it yourself</button>
-  </div>
-  <div class="sh-f row">
-    <button class="btn line" data-close>Cancel</button>
-    <button class="btn" id="btnDoClip">Read recipe</button>
-  </div>
-</dialog>
-
 <!-- Cook mode is built and torn down by cookbook-ui.js so the wake lock has a clear lifecycle. -->
 <div id="cookRoot"></div>
 

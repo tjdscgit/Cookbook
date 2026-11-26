@@ -14,12 +14,14 @@
     { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ],
   "share_target": {
-    "action": "./",
-    "method": "GET",
+    "action": "./share",
+    "method": "POST",
+    "enctype": "multipart/form-data",
     "params": {
-      "title": "shared_title",
-      "text": "shared_text",
-      "url": "shared_url"
+      "title": "title",
+      "text": "text",
+      "url": "url",
+      "files": [{ "name": "files", "accept": ["image/*"] }]
     }
   }
 }

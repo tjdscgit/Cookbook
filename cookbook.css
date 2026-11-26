@@ -380,6 +380,49 @@ dialog .editrow input { height: 44px; padding: 0 10px; }
 .clearq { margin: 4px 0 14px; color: var(--ink-2); }
 .btn.clearyes { background: var(--danger); color: #fff; }
 
+/* ---------- add a recipe + share in (#ad) ---------- */
+.tip { margin: 14px 0 4px; padding: 12px 14px; border-radius: 14px; background: var(--surface-2); font-size: 14.5px; color: var(--ink-2); }
+.filebtn { position: relative; overflow: hidden; cursor: pointer; }
+.filebtn input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.addrow.flush { margin: 0; }
+.addrow button.soft { background: var(--surface-2); color: var(--ink); }
+.nothing.hintp { padding: 10px 0 0; margin: 14px 0; }
+.reading {
+  position: fixed; left: 0; right: 0; top: env(safe-area-inset-top); bottom: env(safe-area-inset-bottom); z-index: 130;
+  background: var(--bg); color: var(--ink); display: flex; flex-direction: column;
+}
+.reading .rdh { font-size: 24px; }
+.srccard { display: flex; gap: 12px; align-items: center; margin: 8px 16px 18px; padding: 12px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); }
+.srccard .tag { flex: none; height: 44px; min-width: 44px; padding: 0 10px; border-radius: 12px; background: var(--accent-wash); color: var(--accent-ink); font-weight: 700; font-size: 13px; display: grid; place-items: center; }
+.srccard b { display: block; font-size: 15px; }
+.srccard small { display: block; font-size: 13px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.prog { padding: 0 16px; }
+.pline { display: flex; gap: 12px; align-items: center; min-height: 48px; font-size: 16px; color: var(--ink-3); }
+.pline.now { color: var(--ink); font-weight: 600; }
+.pline.ok { color: var(--ink); }
+.pline .dot { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--line); flex: none; display: grid; place-items: center; font-size: 13px; font-weight: 700; }
+.pline.ok .dot { background: var(--brand); border-color: var(--brand); color: var(--on-brand); }
+.pline.now .dot { border-color: var(--accent); border-top-color: transparent; animation: spin .8s linear infinite; }
+.reading .scr { position: absolute; inset: 0; overflow-y: auto; scrollbar-width: none; }
+.reading .scr::-webkit-scrollbar { display: none; }
+.rv.scr { bottom: 136px; }
+.rv .ph { height: 220px; }
+.rv .body { padding: 16px; }
+.rv .dt { font-size: 26px; }
+.rv .meta.m2 { margin-top: 2px; }
+.rv .lbl.rvl { margin-top: 18px; }
+.rv .showall { color: var(--accent-ink); font-weight: 600; }
+.warnline { margin: 14px 0 0; padding: 12px 14px; border-radius: 14px; background: var(--accent-wash); color: var(--accent-ink); font-size: 14.5px; }
+.sh-f.rvf { position: absolute; left: 0; right: 0; bottom: 0; background: var(--bg); }
+.textarea { width: 100%; min-height: 200px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface); padding: 12px 14px; font-size: 16px; line-height: 1.45; outline: none; resize: none; }
+.textarea:focus { border-color: var(--brand); }
+.fbody { padding: 8px 16px 0; }
+.fbody h3 { font-family: Fraunces, Georgia, serif; font-size: 26px; font-weight: 600; line-height: 1.12; margin: 6px 0 10px; }
+.fbody p { color: var(--ink-2); margin: 0 0 18px; font-size: 16px; }
+.fbody .readbtn { margin-top: 14px; }
+.fbody .openpost { margin-top: 10px; text-decoration: none; }
+.fbody .ytlink { margin-bottom: 10px; }
+
 /* ---------- desktop ---------- */
 @media (min-width: 801px) {
   .tabbar { display: none; }

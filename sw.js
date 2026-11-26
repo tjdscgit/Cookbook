@@ -1,7 +1,8 @@
 // v2 was the Airtable → Firestore move, v3/v4 the "Editorial Press" redesign. v5 is the redesign
 // from design/cookbook-redesign.html (new shell, tokens, cook-mode timers); v6 its Plan and Shop
-// screens. Bump this on every deploy so devices drop the old shell.
-const CACHE_NAME = "cookbook-shell-v6";
+// screens; v7 Add a recipe and sharing in (POST share target). Bump this on every deploy so devices
+// drop the old shell.
+const CACHE_NAME = "cookbook-shell-v7";
 const SHELL_FILES = [
   "./index.html",
   "./cookbook.css",
@@ -34,7 +35,7 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys().then((names) =>
-      Promise.all(names.filter((n) => n !== CACHE_NAME).map((n) => caches.delete(n)))
+      Promise.all(names.filter((n) => n !== CACHE_NAME && n !== SHARE_CACHE).map((n) => caches.delete(n)))
     ).then(() => self.clients.claim())
   );
 });
@@ -43,6 +44,12 @@ self.addEventListener("fetch", (event) => {
   const req = event.request;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;  // never touch Firestore/Anthropic/cross-origin
+  // Share → Cookbook (manifest share_target, POST multipart). Images are parked in their own cache
+  // for the page to pick up; the link and text ride along in the redirect's query string.
+  if (req.method === "POST" && url.pathname.endsWith("/share")) {
+    event.respondWith(receiveShare(req));
+    return;
+  }
   if (req.method !== "GET") return;
 
   event.respondWith(
@@ -55,3 +62,27 @@ self.addEventListener("fetch", (event) => {
       .catch(() => caches.match(req))
   );
 });
+
+const SHARE_CACHE = "cookbook-share";
+async function receiveShare(req) {
+  const back = new URL("./", self.registration.scope);
+  back.searchParams.set("shared", "1");
+  try {
+    const form = await req.formData();
+    for (const k of ["url", "text", "title"]) {
+      const v = form.get(k);
+      if (v) back.searchParams.set(k, String(v).slice(0, 2000));
+    }
+    const files = form.getAll("files").filter((f) => f && typeof f === "object" && f.size);
+    if (files.length) {
+      await caches.delete(SHARE_CACHE);
+      const cache = await caches.open(SHARE_CACHE);
+      await Promise.all(files.slice(0, 6).map((f, i) => cache.put(
+        new Request(`./shared-file-${i}`),
+        new Response(f, { headers: { "content-type": f.type || "image/jpeg", "x-name": encodeURIComponent(f.name || `image-${i + 1}`) } })
+      )));
+      back.searchParams.set("files", String(Math.min(files.length, 6)));
+    }
+  } catch { /* still open the app */ }
+  return Response.redirect(back.href, 303);
+}

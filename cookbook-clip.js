@@ -145,21 +145,23 @@ Rules that matter:
   // ---------------------------------------------------------------------------
   // Website: JSON-LD first
   // ---------------------------------------------------------------------------
+  // onProgress(message, step): step 0 = fetching, 1 = looking for recipe data, 2 = reading with
+  // Claude. The reading screen ticks its progress lines off by step.
   async function clipFromUrl(pageUrl, onProgress) {
     const say = onProgress || (() => {});
     let html = "";
 
-    say("Fetching the page…");
+    say("Fetching the page…", 0);
     try {
       const r = await fetch(PROXY_HTML(pageUrl), { headers: { "X-Return-Format": "html" } });
       if (r.ok) html = await r.text();
     } catch { /* fall through to the text route below */ }
 
     if (html) {
-      say("Looking for structured recipe data…");
+      say("Looking for structured recipe data…", 1);
       const ld = findRecipeJsonLd(html);
       if (ld) {
-        say("Found it — reading directly, no AI needed.");
+        say("Found it — reading directly, no AI needed.", 2);
         const recipe = fromJsonLd(ld, pageUrl);
         recipe.photoUrl = recipe.photoUrl || findOgImage(html) || "";
         return recipe;
@@ -167,7 +169,7 @@ Rules that matter:
     }
 
     // No structured data. Fall back to reading the page as text with Claude.
-    say("No structured data on that page — reading it with Claude instead…");
+    say("No structured data on that page — reading it with Claude instead…", 2);
     let text = "";
     try {
       const r = await fetch(PROXY_TEXT(pageUrl));
@@ -371,6 +373,182 @@ Rules that matter:
     });
   }
 
+  // Several screenshots of one post (caption, then the comment with the recipe…) are one recipe,
+  // so they go to Claude together in a single call, in the order they were picked.
+  const MAX_PHOTOS = 6;
+  async function clipFromPhotos(files, onProgress) {
+    const say = onProgress || (() => {});
+    const list = Array.from(files || []).slice(0, MAX_PHOTOS);
+    if (!list.length) throw new Error("Choose a photo first.");
+    say("Preparing the images…", 0);
+    const images = [];
+    for (const f of list) {
+      const { b64, mediaType } = await downscale(f);
+      images.push({ type: "image", source: { type: "base64", media_type: mediaType, data: b64 } });
+    }
+    say("Reading them with Claude…", 1);
+    const many = images.length > 1
+      ? `These ${images.length} images are screenshots or photos of ONE recipe, in order (for example a post's caption and then a comment with the method). Combine them into a single recipe and don't repeat anything that appears on more than one image.`
+      : "This is a photograph of a recipe — it may be a printed cookbook page, a handwritten card, or a screenshot.";
+    const data = await callClaude([
+      ...images,
+      { type: "text", text: `${PROMPT_COMMON}\n\n${many} Transcribe only what is actually there.` },
+    ]);
+    say("Done", 2);
+    const recipe = fromModel(data);
+    recipe.sourceType = "Photo";
+    return recipe;
+  }
+
+  // A small JPEG data URL of an image file, for the recipe photo when a clip came from
+  // screenshots: there's no web address to hotlink, and it has to fit inside the Firestore doc.
+  function thumbDataUrl(file, edge = 640) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        const s = Math.min(1, edge / Math.max(img.width, img.height));
+        const c = document.createElement("canvas");
+        c.width = Math.round(img.width * s); c.height = Math.round(img.height * s);
+        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+        resolve(c.toDataURL("image/jpeg", 0.8));
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); resolve(""); };
+      img.src = url;
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Social links: Instagram, Facebook, TikTok, YouTube
+  // ---------------------------------------------------------------------------
+  // What the relay gets back, tested with real posts (Nov 2026):
+  // - Instagram's normal post page is the logged-out page and carries other posts' captions too, so
+  //   the first caption in it is often the wrong recipe. The post's embed page
+  //   (/p/<code>/embed/captioned/) has just that post's caption and photo, so that's what's read.
+  // - YouTube answers the relay with a "confirm you're not a bot" wall: no description. Only the
+  //   title and thumbnail come back (oEmbed), so a YouTube link asks for the recipe link instead.
+  // - TikTok publishes an oEmbed endpoint whose title is the caption.
+  function socialKind(url) {
+    let h = "";
+    try { h = new URL(url).hostname.replace(/^(www|m)\./, ""); } catch { return null; }
+    if (/(^|\.)instagram\.com$/.test(h)) return "Instagram";
+    if (/(^|\.)tiktok\.com$/.test(h)) return "TikTok";
+    if (/(^|\.)youtube\.com$|^youtu\.be$/.test(h)) return "YouTube";
+    if (/(^|\.)facebook\.com$|^fb\.watch$/.test(h)) return "Facebook";
+    return null;
+  }
+
+  // "recipe in comments", "link in bio", "comment 'pizza' and I'll send it", or simply too short /
+  // no amounts: not worth a Claude call, and the screen says so instead.
+  function captionHasRecipe(caption) {
+    const c = String(caption || "");
+    if (c.replace(/\s+/g, " ").trim().length < 150) return false;
+    if (/recipe (is )?(in|on) (the |my )?(comments?|bio|blog|website|link)|link in (my )?bio|comment .{0,30}(and|&) i.?ll (send|dm)|full recipe (at|on|in) /i.test(c)) return false;
+    // Amounts: "200 g", "2 tbsp", or a list line that starts with a number ("* 3 eggs").
+    const units = (c.match(/(\d|[½¼¾⅓⅔⅛])\s*(-|–|to)?\s*\d*\s*(g|kg|ml|l|cups?|tbsps?|tsps?|tablespoons?|teaspoons?|oz|lbs?|cloves?|pinch|cans?|tins?)\b/gi) || []).length;
+    const lines = (c.match(/^\s*[*•\-–]?\s*(\d|[½¼¾⅓⅔⅛])[^\n]*[a-z]/gim) || []).length;
+    const heading = /\bingredients\b/i.test(c);
+    return units + lines >= 4 || (heading && units + lines >= 2);
+  }
+
+  async function relayHtml(url) {
+    const r = await fetch(PROXY_HTML(url), { headers: { "X-Return-Format": "html" } });
+    if (!r.ok) throw new Error(`Couldn't open that post (${r.status}).`);
+    return r.text();
+  }
+  async function relayJson(url) {
+    // Text mode: the JSON body comes back under "Markdown Content:" (HTML mode wraps it in a <pre>).
+    const r = await fetch(PROXY_TEXT(url));
+    if (!r.ok) throw new Error(`Couldn't open that post (${r.status}).`);
+    const t = await r.text();
+    const m = t.match(/\{[\s\S]*\}/);
+    return m ? JSON.parse(m[0]) : {};
+  }
+
+  async function readInstagram(url) {
+    const code = (url.match(/instagram\.com\/(?:[^/]+\/)?(?:p|reel|reels|tv)\/([A-Za-z0-9_-]+)/) || [])[1];
+    if (!code) throw new Error("That doesn't look like a link to an Instagram post.");
+    const html = await relayHtml(`https://www.instagram.com/p/${code}/embed/captioned/`);
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const cap = doc.querySelector(".Caption");
+    let caption = "";
+    if (cap) {
+      cap.querySelectorAll(".CaptionUsername, .CaptionComments, .CaptionCommentsExpand").forEach((n) => n.remove());
+      cap.querySelectorAll("br").forEach((br) => br.replaceWith("\n"));
+      caption = cap.textContent.replace(/[ \t]+\n/g, "\n").trim();
+    }
+    const img = doc.querySelector(".EmbeddedMediaImage");
+    return { caption, photoUrl: img ? img.getAttribute("src") || "" : "", title: "" };
+  }
+
+  async function readFacebook(url) {
+    const html = await relayHtml(url);
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const meta = (p) => doc.querySelector(`meta[property="${p}"], meta[name="${p}"]`)?.getAttribute("content") || "";
+    return { caption: meta("og:description"), photoUrl: meta("og:image"), title: meta("og:title") };
+  }
+
+  async function readTikTok(url) {
+    const o = `https://www.tiktok.com/oembed?url=${encodeURIComponent(url)}`;
+    let j = null;
+    try { const r = await fetch(o); if (r.ok) j = await r.json(); } catch { /* try the relay */ }
+    if (!j) j = await relayJson(o);
+    return { caption: j.title || "", photoUrl: j.thumbnail_url || "", title: j.author_name ? `TikTok from ${j.author_name}` : "" };
+  }
+
+  async function readYouTube(url) {
+    let title = "", photoUrl = "", caption = "";
+    try {
+      const j = await relayJson(`https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`);
+      title = j.title || ""; photoUrl = j.thumbnail_url || "";
+    } catch { /* title is optional */ }
+    // The description, if YouTube ever lets the relay through.
+    try {
+      const html = await relayHtml(url);
+      const m = html.match(/"shortDescription":"((?:[^"\\]|\\.)*)"/);
+      if (m) caption = JSON.parse(`"${m[1]}"`);
+    } catch { /* bot wall: no description */ }
+    return { caption, photoUrl, title };
+  }
+
+  // Returns { recipe } or { noRecipe: true, kind, title, photoUrl, caption }.
+  // onProgress(message, step): 0 opened the post, 1 reading the caption, 2 pulling out the recipe.
+  async function clipFromSocial(url, onProgress) {
+    const say = onProgress || (() => {});
+    const kind = socialKind(url);
+    if (!kind) throw new Error("That isn't an Instagram, TikTok, YouTube or Facebook link.");
+    say("Opening the post…", 0);
+    const got = await ({ Instagram: readInstagram, TikTok: readTikTok, YouTube: readYouTube, Facebook: readFacebook })[kind](url);
+    say("Reading the caption…", 1);
+
+    // A YouTube description that links to a recipe site: that page is better than the caption.
+    if (kind === "YouTube" && got.caption) {
+      const links = (got.caption.match(/https?:\/\/[^\s)]+/g) || []).filter((l) => !socialKind(l) && !/amzn|amazon\.|patreon|bit\.ly\/?$|linktr\.ee/i.test(l));
+      for (const link of links) {
+        try {
+          const recipe = await clipFromUrl(link, () => {});
+          if (recipe.ingredients.length) {
+            recipe.photoUrl = recipe.photoUrl || got.photoUrl;
+            return { recipe };
+          }
+        } catch { /* try the next link */ }
+      }
+    }
+
+    if (!captionHasRecipe(got.caption)) return { noRecipe: true, kind, ...got };
+
+    say("Pulling out ingredients and method…", 2);
+    const data = await callClaude([
+      { type: "text", text: `${PROMPT_COMMON}\n\nThis is the caption of a ${kind} post. It may contain hashtags, chatter, or sponsor mentions around the recipe — ignore those and extract only the recipe.\n\n${got.caption.slice(0, 60000)}` },
+    ]);
+    const recipe = fromModel(data);
+    recipe.sourceType = "Social";
+    recipe.sourceUrl = url;
+    recipe.photoUrl = got.photoUrl || "";
+    return { recipe };
+  }
+
   // ---------------------------------------------------------------------------
   // Pasted text (social captions, emails, anything copied)
   // ---------------------------------------------------------------------------
@@ -448,5 +626,5 @@ Rules that matter:
     return probe.unit || String(unit).toLowerCase();
   }
 
-  return { clipFromUrl, clipFromPhoto, clipFromText, MODEL };
+  return { clipFromUrl, clipFromPhoto, clipFromPhotos, clipFromText, clipFromSocial, socialKind, captionHasRecipe, thumbDataUrl, MAX_PHOTOS, MODEL };
 });

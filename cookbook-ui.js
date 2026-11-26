@@ -52,9 +52,6 @@
     listWeek: null,       // the planned week the list was made from, for the "From 7 meals" line
     shView: readShopView(), // "aisle" or "recipe", remembered
     trolleyOpen: false,   // "In the trolley" starts collapsed
-    // clip
-    clipMode: "url",
-    clipFile: null,
     loaded: false,
   };
 
@@ -121,8 +118,7 @@
     $("#navSettings").onclick = openSettings;
     $("#bannerSettings").onclick = openSettings;
     $("#btnRecipesMore").onclick = recipesMenu;
-    // "+ Add recipe" opens the existing clipper until the Add recipe sheet (a later stage) exists.
-    $("#btnAdd").onclick = openClip;
+    $("#btnAdd").onclick = addMenu;
 
     // Dialogs all close the same way.
     $$("[data-close]").forEach((b) => {
@@ -474,7 +470,6 @@
       else if (d.col) { S.section = "cookbook"; S.chip = d.col; renderRecipes(); $("#main").scrollTop = 0; }
       else if ("newcol" in d) newCollection();
     };
-    $("#btnNew").onclick = () => { $("#dlgClip").close(); openEditor(blankRecipe()); };
   }
 
   const inSection = (r) => (S.section === "toTry" ? !r.tried : r.tried);
@@ -1235,84 +1230,306 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Clipper
+  // Add a recipe + share in (#ad, brief part G)
   // ---------------------------------------------------------------------------
+  // The "+ Add recipe" sheet, the Paste a link sheet, and three full-screen steps over the app:
+  // reading (progress lines), review (save to To try or open the editor), and "the recipe isn't in
+  // the caption". Shares from other apps land on the reading screen and start on their own.
+  const AD = { run: 0, shareFiles: null };
+
   function wireClip() {
-    $$("#clipTabs [data-clip]").forEach((tab) => {
-      tab.onclick = () => {
-        S.clipMode = tab.dataset.clip;
-        $$("#clipTabs [data-clip]").forEach((t) => t.setAttribute("aria-pressed", String(t === tab)));
-        $$(".clip-pane").forEach((p) => { p.hidden = p.dataset.pane !== S.clipMode; });
-        $("#clipStatus").textContent = "";
-      };
+    document.addEventListener("change", (e) => {
+      if (!e.target.matches("[data-adfiles]") || !e.target.files.length) return;
+      const files = Array.from(e.target.files);
+      e.target.value = "";
+      readPhotos(files);
     });
+  }
 
-    $("#clipPhoto").onchange = (e) => {
-      S.clipFile = e.target.files[0] || null;
-      const prev = $("#clipPreview");
-      if (S.clipFile) { prev.src = URL.createObjectURL(S.clipFile); prev.hidden = false; }
-      else prev.hidden = true;
+  function addMenu() {
+    const sheet = openSheet(`<div class="sh-h"><h3>Add a recipe</h3><button class="ib" data-x aria-label="Close">✕</button></div><div class="sh-b">
+      <button class="mitem" data-link>Paste a link<small>Website, Instagram, TikTok or YouTube</small></button>
+      <label class="mitem filebtn"><span>Photo or screenshots</span><small>Cookbook page, recipe card or screenshots of a post</small><input type="file" accept="image/*" multiple data-adfiles></label>
+      <button class="mitem" data-text>Paste the text<small>A caption, an email, a note</small></button>
+      <button class="mitem" data-write>Write it yourself<small>Opens a blank recipe</small></button>
+      <div class="tip">Quickest from Instagram or TikTok: tap Share, then Cookbook.</div></div>`, (b) => {
+      const d = b.dataset;
+      if ("link" in d) linkSheet();
+      else if ("text" in d) { closeSheet(); textScreen(); }
+      else if ("write" in d) { closeSheet(); openEditor(blankRecipe()); }
+    });
+    return sheet;
+  }
+
+  function linkSheet(value) {
+    const sheet = openSheet(`<div class="sh-h"><h3>Paste a link</h3><button class="ib" data-x aria-label="Close">✕</button></div><div class="sh-b">
+      <div class="addrow flush"><input id="adUrl" type="url" placeholder="https://" aria-label="Recipe link" value="${escapeAttr(value || "")}"><button class="soft" data-paste>Paste</button></div>
+      <p class="nothing hintp">Instagram, TikTok and YouTube links read the caption or description.</p></div>
+      <div class="sh-f"><button class="btn" data-get>Get recipe</button></div>`, async (b) => {
+      const d = b.dataset;
+      if ("paste" in d) {
+        try { $("#adUrl").value = (await navigator.clipboard.readText()).trim(); }
+        catch { toastError("Couldn't read the clipboard. Long-press the box and paste instead."); }
+      } else if ("get" in d) {
+        const url = firstUrl($("#adUrl").value);
+        if (!url) { toastError("Paste a link first."); return; }
+        closeSheet();
+        readLink(url);
+      }
+    });
+    $("#adUrl", sheet).onkeydown = (e) => { if (e.key === "Enter") sheet.querySelector("[data-get]").click(); };
+    return sheet;
+  }
+
+  function firstUrl(s) {
+    const m = String(s || "").match(/https?:\/\/\S+/);
+    return m ? m[0].replace(/[),.]+$/, "") : "";
+  }
+
+  // --- full-screen steps ---------------------------------------------------------
+  function adOverlay(html) {
+    closeAdOverlay();
+    closeSheet();
+    const el = document.createElement("div");
+    el.className = "reading";
+    el.innerHTML = html;
+    el.addEventListener("click", onAdClick);
+    document.body.append(el);
+    return el;
+  }
+  function closeAdOverlay() {
+    AD.run++;
+    $$("body > .reading").forEach((n) => n.remove());
+  }
+
+  function shortUrl(u) {
+    return String(u || "").replace(/^https?:\/\/(www\.|m\.)?/, "").replace(/[?#].*$/, "").replace(/\/$/, "");
+  }
+
+  // What the source card says: tag, title, small line.
+  function sourceCard(src) {
+    if (src.type === "photos") {
+      const n = src.files.length;
+      return { tag: "Photos", title: n === 1 ? "1 photo" : `${n} screenshots`, sub: src.files.map((f) => f.name).join(", ") };
+    }
+    if (src.type === "text") return { tag: "Text", title: "Pasted text", sub: src.text.replace(/\s+/g, " ").trim() };
+    const kind = Clip.socialKind(src.url);
+    if (kind) {
+      const what = kind === "Instagram" ? (/\/reels?\//.test(src.url) ? "Reel" : "Post") : kind === "Facebook" ? "Post" : "Video";
+      return { tag: kind, title: `${what} shared from ${kind}`, sub: shortUrl(src.url) };
+    }
+    return { tag: "Website", title: hostOf(src.url) || "Recipe page", sub: shortUrl(src.url) };
+  }
+
+  function srcCardHtml(src) {
+    const c = sourceCard(src);
+    return `<div class="srccard"><span class="tag">${escapeHtml(c.tag)}</span><div><b>${escapeHtml(c.title)}</b><small>${escapeHtml(c.sub)}</small></div></div>`;
+  }
+
+  function readingLines(src) {
+    if (src.type === "photos") {
+      const n = src.files.length;
+      return [n === 1 ? "Got the photo" : `Got ${n} screenshots`, "Reading them with Claude", "Pulling out ingredients and method"];
+    }
+    if (src.type === "text") return ["Got the text", "Pulling out ingredients and method"];
+    if (Clip.socialKind(src.url)) return ["Opened the post", "Reading the caption", "Pulling out ingredients and method"];
+    return ["Opened the page", "Looking for recipe data", "Pulling out ingredients and method"];
+  }
+
+  // Runs one read on the reading screen. `work(step)` does the reading and calls step(i) as each
+  // line becomes current; it resolves to { recipe } or { noRecipe }.
+  async function runReading(src, work) {
+    const lines = readingLines(src);
+    const ov = adOverlay(`<div class="top"><h2 class="h1 rdh">Adding a recipe</h2><button class="ib" data-cancel aria-label="Cancel">✕</button></div>
+      ${srcCardHtml(src)}
+      <div class="prog">${lines.map((l, i) => `<div class="pline ${i === 0 ? "now" : ""}" data-l="${i}"><span class="dot"></span>${escapeHtml(l)}</div>`).join("")}</div>`);
+    const run = AD.run;
+    const step = (i) => {
+      if (run !== AD.run) return;
+      i = Math.min(i, lines.length);
+      ov.querySelectorAll(".pline").forEach((p, j) => {
+        p.className = `pline ${j < i ? "ok" : j === i ? "now" : ""}`;
+        p.querySelector(".dot").textContent = j < i ? "✓" : "";
+      });
     };
-
-    $("#btnDoClip").onclick = doClip;
+    try {
+      const res = await work(step);
+      if (run !== AD.run) return;
+      step(lines.length);
+      await new Promise((r) => setTimeout(r, 400));
+      if (run !== AD.run) return;
+      if (res.noRecipe) noRecipeScreen(src, res);
+      else reviewScreen(src, res.recipe);
+    } catch (e) {
+      if (run !== AD.run) return;
+      closeAdOverlay();
+      toastError(e.message);
+    }
   }
 
-  // Android's share sheet lands here via the manifest's share_target (GET, so no service-worker
-  // hook needed) — different apps put the link in different fields, so all three are checked.
-  function consumeSharedLink() {
-    const params = new URLSearchParams(location.search);
-    if (!params.has("shared_url") && !params.has("shared_text") && !params.has("shared_title")) return;
-    const candidates = [params.get("shared_url"), params.get("shared_text"), params.get("shared_title")];
-    const found = candidates.map((c) => c && c.match(/https?:\/\/\S+/)).find(Boolean);
-    history.replaceState(null, "", location.pathname + location.hash);
-    if (!found) return;
-    openClip();
-    $("#clipUrl").value = found[0];
+  function readLink(url) {
+    const src = { type: "link", url };
+    const social = Clip.socialKind(url);
+    runReading(src, async (step) => {
+      if (social) return Clip.clipFromSocial(url, (m, i) => step(i));
+      const recipe = await Clip.clipFromUrl(url, (m, i) => step(i));
+      return { recipe };
+    });
   }
 
-  function openClip() {
-    $("#clipUrl").value = "";
-    $("#clipText").value = "";
-    $("#clipPhoto").value = "";
-    $("#clipPreview").hidden = true;
-    $("#clipStatus").textContent = "";
-    S.clipFile = null;
-    $("#dlgClip").showModal();
+  function readPhotos(files) {
+    files = files.slice(0, Clip.MAX_PHOTOS);
+    const src = { type: "photos", files };
+    runReading(src, async (step) => {
+      step(1);
+      const recipe = await Clip.clipFromPhotos(files, (m, i) => step(i + 1));
+      recipe.photoUrl = await Clip.thumbDataUrl(files[0]);
+      return { recipe };
+    });
   }
 
-  async function doClip() {
-    const status = $("#clipStatus");
-    const btn = $("#btnDoClip");
-    const say = (msg) => { status.innerHTML = `<span class="spinner"></span> ${escapeHtml(msg)}`; };
+  function readText(text) {
+    const src = { type: "text", text };
+    runReading(src, async (step) => {
+      step(1);
+      return { recipe: await Clip.clipFromText(text) };
+    });
+  }
 
+  // --- review ---------------------------------------------------------------------------
+  function fromLine(src, r) {
+    let from;
+    if (src.type === "photos") from = src.files.length === 1 ? "From a photo" : `From ${src.files.length} screenshots`;
+    else if (src.type === "text") from = "From pasted text";
+    else {
+      const k = Clip.socialKind(src.url);
+      from = k === "Instagram" ? (/\/reels?\//.test(src.url) ? "From an Instagram reel" : "From an Instagram post")
+        : k === "TikTok" ? "From a TikTok" : k === "YouTube" ? "From a YouTube video" : k === "Facebook" ? "From a Facebook post"
+        : `From ${hostOf(src.url) || "a website"}`;
+    }
+    const bits = [from];
+    if (r.servings) bits.push(`serves ${r.servings}`);
+    const t = timeLabel(totalMins(r));
+    if (t) bits.push(t);
+    return bits.join(" · ");
+  }
+  const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+
+  function reviewRow(g) {
+    const a = amountText(g);
+    const sub = g.note || g.group;
+    return `<div class="ingrow"><span class="it">${a ? `<b>${escapeHtml(a)}</b> ` : ""}${escapeHtml(g.item)}${sub ? `<small>${escapeHtml(sub)}</small>` : ""}</span></div>`;
+  }
+
+  function reviewScreen(src, recipe) {
+    recipe.id = null;
+    recipe.tried = false;
+    if (src.type === "link") {
+      recipe.sourceUrl = recipe.sourceUrl || src.url;
+      recipe.sourceType = Clip.socialKind(src.url) ? "Social" : "Website";
+    } else if (src.type === "photos") recipe.sourceType = "Photo";
+    AD.recipe = recipe;
+    const ings = recipe.ingredients || [];
+    const ov = adOverlay(`<div class="scr rv"><div class="ph">${phInner(recipe, true)}</div><button class="ov l" data-cancel aria-label="Cancel">✕</button>
+      <div class="body"><h3 class="dt">${escapeHtml(recipe.name)}</h3><div class="meta">${escapeHtml(fromLine(src, recipe))}</div><div class="meta m2">${plural(ings.length, "ingredient")} · ${plural((recipe.steps || []).length, "step")}</div>
+      ${recipe.confidence === "low" ? '<div class="warnline">Some of it was hard to read. Check the amounts before cooking.</div>' : ""}
+      <div class="lbl rvl">Ingredients</div>
+      <div class="rvings">${ings.slice(0, 5).map(reviewRow).join("")}</div>
+      ${ings.length > 5 ? `<button class="mitem showall" data-showall>Show all ${ings.length}</button>` : ""}</div></div>
+      <div class="sh-f rvf"><button class="btn" data-save>Save to To try</button><button class="btn soft" data-editfirst>Check and edit first</button></div>`);
+    return ov;
+  }
+
+  async function saveFromReview(btn) {
+    const r = AD.recipe;
     btn.disabled = true;
     try {
-      let recipe;
-      if (S.clipMode === "url") {
-        const url = $("#clipUrl").value.trim();
-        if (!url) throw new Error("Paste a recipe URL first.");
-        recipe = await Clip.clipFromUrl(url, say);
-      } else if (S.clipMode === "photo") {
-        if (!S.clipFile) throw new Error("Choose a photo first.");
-        recipe = await Clip.clipFromPhoto(S.clipFile, say);
-      } else {
-        recipe = await Clip.clipFromText($("#clipText").value, say);
-      }
-
-      $("#dlgClip").close();
-      // Every clip lands in the editor for review — nothing is saved until Save is pressed.
-      recipe.id = null;
-      openEditor(recipe);
-      if (recipe.confidence === "low") {
-        toastError("Read it, but the source was hard to make out — check the amounts before saving.");
-      } else {
-        toast("Read it — check it over, then save.");
-      }
+      const saved = await Data.createRecipe(r);
+      if (r.photoUrl) { try { await Data.setPhotoFromUrl(saved.id, r.photoUrl); } catch { /* optional */ } }
+      closeAdOverlay();
+      S.section = "toTry";
+      S.chip = null;
+      setView("recipes");
+      await refresh();
+      toast("Saved to To try");
     } catch (e) {
-      status.innerHTML = `<span style="color:var(--danger)">${escapeHtml(e.message)}</span>`;
-    } finally {
       btn.disabled = false;
+      toastError(e.message);
     }
+  }
+
+  // --- the recipe isn't in the caption ----------------------------------------------------
+  function noRecipeScreen(src, res) {
+    const yt = res.kind === "YouTube";
+    const where = yt ? "description" : "caption";
+    const text = yt
+      ? "YouTube doesn't let the app read the description. Paste the recipe link from it here, or screenshot the recipe and add the screenshots."
+      : "This post says the recipe is in the comments or a link. Screenshot it, then share the screenshots to Cookbook, or add them here.";
+    AD.src = src;
+    adOverlay(`<div class="top"><span></span><button class="ib" data-cancel aria-label="Cancel">✕</button></div>
+      ${srcCardHtml(src)}
+      <div class="fbody"><h3>The recipe isn’t in the ${where}</h3><p>${text}</p>
+        ${yt ? `<div class="addrow flush ytlink"><input id="adYtUrl" type="url" placeholder="https://" aria-label="Recipe link"><button data-ytget>Get recipe</button></div>` : ""}
+        <label class="btn filebtn">Add screenshots<input type="file" accept="image/*" multiple data-adfiles></label>
+        <button class="btn soft" data-text>Paste the text instead</button>
+        <a class="btn line openpost" href="${escapeAttr(src.url)}" target="_blank" rel="noopener">${yt ? "Open the video" : "Open the post"}</a></div>`);
+  }
+
+  function textScreen() {
+    adOverlay(`<div class="top"><h2 class="h1 rdh">Paste the text</h2><button class="ib" data-cancel aria-label="Cancel">✕</button></div>
+      <div class="fbody"><textarea class="textarea" id="adText" placeholder="Paste a caption, an email or a note. Hashtags and chatter are ignored."></textarea>
+      <button class="btn readbtn" data-readtext>Read recipe</button></div>`);
+  }
+
+  function onAdClick(e) {
+    const b = e.target.closest("button");
+    if (!b) return;
+    const d = b.dataset;
+    if ("cancel" in d) closeAdOverlay();
+    else if ("save" in d) saveFromReview(b);
+    else if ("editfirst" in d) { const r = AD.recipe; closeAdOverlay(); openEditor(r); }
+    else if ("showall" in d) { $(".rvings").innerHTML = AD.recipe.ingredients.map(reviewRow).join(""); b.remove(); }
+    else if ("text" in d) textScreen();
+    else if ("readtext" in d) {
+      const t = $("#adText").value;
+      if (!t.trim()) { toastError("Paste the recipe text first."); return; }
+      readText(t);
+    } else if ("ytget" in d) {
+      const url = firstUrl($("#adYtUrl").value);
+      if (!url) { toastError("Paste the recipe link first."); return; }
+      readLink(url);
+    }
+  }
+
+  // --- share in ----------------------------------------------------------------------------
+  // The manifest's share_target POSTs to ./share; sw.js keeps any shared images in the
+  // "cookbook-share" cache and redirects here with ?shared=1&url=…&text=…&title=…. Installs that
+  // still have the old GET share target arrive with shared_url / shared_text / shared_title.
+  async function consumeSharedLink() {
+    const p = new URLSearchParams(location.search);
+    const isNew = p.has("shared");
+    const isOld = p.has("shared_url") || p.has("shared_text") || p.has("shared_title");
+    if (!isNew && !isOld) return;
+    const fields = isNew ? [p.get("url"), p.get("text"), p.get("title")] : [p.get("shared_url"), p.get("shared_text"), p.get("shared_title")];
+    history.replaceState(null, "", location.pathname + location.hash);
+
+    let files = [];
+    if (isNew && p.get("files") && "caches" in window) {
+      try {
+        const cache = await caches.open("cookbook-share");
+        for (const req of await cache.keys()) {
+          const res = await cache.match(req);
+          const blob = await res.blob();
+          files.push(new File([blob], decodeURIComponent(res.headers.get("x-name") || "image"), { type: blob.type }));
+          await cache.delete(req);
+        }
+      } catch { files = []; }
+    }
+    if (files.length) { readPhotos(files); return; }
+    const url = fields.map(firstUrl).find(Boolean);
+    if (url) { readLink(url); return; }
+    const text = fields.filter(Boolean).join("\n").trim();
+    if (text) { textScreen(); $("#adText").value = text; }
   }
 
   // ---------------------------------------------------------------------------
